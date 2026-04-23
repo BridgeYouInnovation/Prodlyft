@@ -2,8 +2,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
-import { BrandMark } from "@/components/BrandMark";
 import { Icons } from "@/components/Icons";
+import { LandingHeader } from "@/components/LandingHeader";
 import { createCrawl, type Platform } from "@/lib/api";
 
 type PlatformChoice = "shopify" | "woocommerce" | "other";
@@ -40,19 +40,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-bg">
-      <header className="h-[60px] px-4 md:px-12 flex items-center border-b border-line">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-[15px] tracking-tight2">
-          <BrandMark /> Prodlyft
-        </Link>
-        <nav className="hidden lg:flex gap-6 ml-12 text-[13px] text-muted">
-          <span>Product</span><span>Integrations</span><span>Pricing</span><span>Docs</span>
-        </nav>
-        <div className="flex-1" />
-        <div className="flex items-center gap-2 text-[13px]">
-          <span className="text-muted hidden sm:inline">Sign in</span>
-          <Link href="/dashboard" className="btn-primary">Start free</Link>
-        </div>
-      </header>
+      <LandingHeader />
 
       <section className="pt-12 md:pt-[72px] px-4 md:px-12 max-w-[900px] mx-auto text-center">
         <div className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 bg-white border border-line rounded-full text-[11.5px] text-ink-2 mb-6 md:mb-7">

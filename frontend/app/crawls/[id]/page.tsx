@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Shell } from "@/components/Shell";
 import { Icons } from "@/components/Icons";
 import { getCrawl, exportCrawlUrl, type Crawl } from "@/lib/api";
@@ -17,10 +18,13 @@ function fmtPrice(p: number | null, currency = "USD") {
 
 export default function CrawlDetail() {
   const params = useParams<{ id: string }>();
+  const pathname = usePathname();
+  const { data: session, status: authStatus } = useSession();
   const id = params.id;
   const [crawl, setCrawl] = useState<Crawl | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const signedIn = authStatus === "authenticated" && !!session?.user;
 
   useEffect(() => {
     let alive = true;
@@ -73,7 +77,7 @@ export default function CrawlDetail() {
             <div className="font-mono text-[11.5px] text-muted break-all">{crawl?.url}</div>
           </div>
           <div className="sm:flex-1" />
-          {crawl?.status === "done" && (
+          {crawl?.status === "done" && signedIn && (
             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <a href={exportCrawlUrl(id, "shopify")} className="btn flex-1 sm:flex-initial justify-center">
                 <Icons.Download size={14}/> Shopify CSV
@@ -131,8 +135,33 @@ export default function CrawlDetail() {
           </div>
         )}
 
-        {/* Summary + search */}
-        {crawl?.status === "done" && (
+        {/* Sign-in gate for anonymous users */}
+        {crawl?.status === "done" && !signedIn && authStatus !== "loading" && (
+          <div className="card p-5 md:p-7 mb-5 text-center max-w-[560px] mx-auto w-full">
+            <div className="w-12 h-12 rounded-full grid place-items-center mx-auto mb-4" style={{ background: "var(--accent-soft)", color: "var(--accent-ink)" }}>
+              <Icons.Sparkle size={22} />
+            </div>
+            <div className="text-[11.5px] font-mono uppercase tracking-wider text-muted mb-1.5">{crawl.platform} extract</div>
+            <h2 className="text-[22px] md:text-[26px] font-[560] tracking-tight2 mb-1.5">
+              {crawl.products?.length ?? 0} products ready
+            </h2>
+            <p className="text-[13.5px] text-muted mb-5 leading-[1.55]">
+              Sign in to view the full product list and download the Shopify or WooCommerce CSV.
+            </p>
+            <Link
+              href={`/signin?callbackUrl=${encodeURIComponent(pathname)}`}
+              className="btn-primary btn-lg"
+            >
+              Sign in with email <Icons.ArrowRight size={14} />
+            </Link>
+            <div className="mt-3 text-[11.5px] text-muted-2">
+              No password — we'll email you a magic link.
+            </div>
+          </div>
+        )}
+
+        {/* Summary + search (signed-in only) */}
+        {crawl?.status === "done" && signedIn && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-5">
               <Stat label="Products" value={String(crawl.products?.length ?? 0)} />

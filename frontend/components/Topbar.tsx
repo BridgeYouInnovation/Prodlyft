@@ -1,3 +1,7 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { useSession, signOut } from "next-auth/react";
 import { Icons } from "./Icons";
 
 export function Topbar({
@@ -9,7 +13,21 @@ export function Topbar({
   right?: React.ReactNode;
   onMenuClick?: () => void;
 }) {
+  const { data: session } = useSession();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, []);
+
   const last = crumbs[crumbs.length - 1];
+  const initials = (session?.user?.email || "?").slice(0, 1).toUpperCase();
+
   return (
     <div className="topbar px-3 md:px-5 gap-1 md:gap-0">
       {onMenuClick && (
@@ -50,10 +68,44 @@ export function Topbar({
           <button className="btn-ghost btn-icon">
             <Icons.Bell size={15} />
           </button>
-          <div
-            className="w-7 h-7 rounded-full ml-1 flex-shrink-0"
-            style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
-          />
+          <div ref={ref} className="relative">
+            <button
+              onClick={() => setMenuOpen((o) => !o)}
+              className="w-7 h-7 rounded-full ml-1 flex-shrink-0 grid place-items-center text-white text-[11px] font-medium"
+              style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
+              aria-label="Account"
+            >
+              {session?.user ? initials : null}
+            </button>
+            {menuOpen && session?.user && (
+              <div
+                className="absolute top-full right-0 mt-2 w-[220px] bg-white border border-line rounded-lg p-1.5 z-50"
+                style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
+              >
+                <div className="px-2.5 py-2 border-b border-line-2 mb-1">
+                  <div className="text-[11.5px] text-muted">Signed in as</div>
+                  <div className="text-[13px] font-medium text-ink truncate">{session.user.email}</div>
+                </div>
+                <Link href="/dashboard" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>Dashboard</Link>
+                <Link href="/products" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>Extracts</Link>
+                <div className="my-1 border-t border-line-2" />
+                <button
+                  onClick={() => signOut({ redirectTo: "/" })}
+                  className="block w-full text-left px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2 text-danger"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+            {menuOpen && !session?.user && (
+              <div
+                className="absolute top-full right-0 mt-2 w-[220px] bg-white border border-line rounded-lg p-3 z-50"
+                style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
+              >
+                <Link href="/signin" className="btn-primary w-full justify-center">Sign in</Link>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
