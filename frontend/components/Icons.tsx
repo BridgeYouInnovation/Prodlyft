@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-type IconProps = SVGProps<SVGSVGElement> & { size?: number; stroke?: number };
+type IconProps = Omit<SVGProps<SVGSVGElement>, "stroke"> & { size?: number; stroke?: number };
 
 const I = ({ size = 16, stroke = 1.5, children, ...rest }: IconProps & { children: React.ReactNode }) => (
   <svg
