@@ -4,12 +4,19 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { Icons } from "@/components/Icons";
-import { createImport } from "@/lib/api";
+import { createCrawl, type Platform } from "@/lib/api";
 
-const logos = ["ALBA", "NORTHWIND", "KOFI", "LUMEN", "PARITY", "FIELDNOTE"];
+type PlatformChoice = "shopify" | "woocommerce" | "other";
+
+const platforms: { id: PlatformChoice; name: string; sub: string; color: string; hint: string }[] = [
+  { id: "shopify",     name: "Shopify",      sub: "Any Shopify store",           color: "#95BF47", hint: "example.myshopify.com" },
+  { id: "woocommerce", name: "WordPress",    sub: "WooCommerce storefronts",     color: "#7F54B3", hint: "wp.example.com" },
+  { id: "other",       name: "Other",        sub: "Single product URL",          color: "#0E0E0C", hint: "example.com/products/sku" },
+];
 
 export default function Landing() {
   const router = useRouter();
+  const [pick, setPick] = useState<PlatformChoice>("shopify");
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,13 +27,16 @@ export default function Landing() {
     if (!url.trim()) return;
     setSubmitting(true);
     try {
-      const { job_id } = await createImport(url.trim());
-      router.push(`/imports/${job_id}`);
+      const platformParam: Platform = pick;
+      const { crawl_id } = await createCrawl(url.trim(), platformParam);
+      router.push(`/crawls/${crawl_id}`);
     } catch (err) {
       setError((err as Error).message);
       setSubmitting(false);
     }
   }
+
+  const selected = platforms.find((p) => p.id === pick)!;
 
   return (
     <div className="min-h-screen bg-bg">
@@ -35,7 +45,7 @@ export default function Landing() {
           <BrandMark /> Prodlyft
         </Link>
         <nav className="hidden lg:flex gap-6 ml-12 text-[13px] text-muted">
-          <span>Product</span><span>Integrations</span><span>Pricing</span><span>Docs</span><span>Changelog</span>
+          <span>Product</span><span>Integrations</span><span>Pricing</span><span>Docs</span>
         </nav>
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-[13px]">
@@ -44,20 +54,42 @@ export default function Landing() {
         </div>
       </header>
 
-      <section className="pt-12 md:pt-[88px] px-4 md:px-12 max-w-[1100px] mx-auto text-center">
+      <section className="pt-12 md:pt-[72px] px-4 md:px-12 max-w-[900px] mx-auto text-center">
         <div className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 bg-white border border-line rounded-full text-[11.5px] text-ink-2 mb-6 md:mb-7">
           <span className="chip chip-accent h-[18px]">New</span>
-          <span className="hidden xs:inline">Bulk import from any Shopify store — live</span>
-          <span className="xs:hidden">Bulk import from Shopify</span>
+          Scrape any Shopify or WooCommerce store in seconds
         </div>
 
-        <h1 className="text-[40px] sm:text-5xl md:text-6xl lg:text-[64px] font-[560] leading-[1.05] md:leading-[1.02] tracking-tight3 max-w-[900px] mx-auto mb-4 md:mb-[18px]">
-          Every product,<br />
+        <h1 className="text-[36px] sm:text-5xl md:text-6xl lg:text-[60px] font-[560] leading-[1.05] md:leading-[1.02] tracking-tight3 mb-4 md:mb-5">
+          Pull full product catalogs<br />
           <span className="text-muted">from any URL, in seconds.</span>
         </h1>
         <p className="text-[15px] md:text-[17px] text-muted max-w-[560px] mx-auto mb-8 md:mb-10 leading-[1.5]">
-          Prodlyft pulls product data from any storefront, cleans it up, and syncs it to WooCommerce or Shopify. No scraping scripts. No spreadsheets.
+          Paste a store URL. Prodlyft auto-detects the platform, pulls every product, and hands you an import-ready CSV for Shopify or WooCommerce.
         </p>
+
+        {/* Platform tiles */}
+        <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4 max-w-[640px] mx-auto">
+          {platforms.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPick(p.id)}
+              className="text-left rounded-lg border p-3 md:p-4 transition-colors bg-white"
+              style={{
+                borderColor: pick === p.id ? "var(--ink)" : "var(--line)",
+                boxShadow: pick === p.id ? "0 0 0 3px rgba(14,14,12,0.06)" : "none",
+              }}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className="w-6 h-6 rounded relative flex-shrink-0" style={{ background: p.color, opacity: 0.15 }}>
+                  <div className="absolute inset-1 rounded-sm" style={{ background: p.color }} />
+                </div>
+                <div className="text-[13px] font-medium">{p.name}</div>
+              </div>
+              <div className="text-[11px] md:text-[11.5px] text-muted leading-[1.35]">{p.sub}</div>
+            </button>
+          ))}
+        </div>
 
         <form
           onSubmit={onSubmit}
@@ -70,7 +102,7 @@ export default function Landing() {
           </div>
           <input
             className="flex-1 font-mono text-[13.5px] text-ink text-left bg-transparent outline-none px-3 sm:px-0 min-w-0"
-            placeholder="northwind-supply.com/products/..."
+            placeholder={selected.hint}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             autoFocus
@@ -86,62 +118,31 @@ export default function Landing() {
         </form>
         {error && <div className="mt-3 text-[12px] text-danger">{error}</div>}
         <div className="mt-3.5 text-[12px] text-muted-2 flex items-center justify-center gap-2 md:gap-4 flex-wrap">
-          <span className="flex items-center gap-1.5"><span className="dot text-accent" /> Live — 1,284 URLs processed today</span>
+          <span className="flex items-center gap-1.5"><span className="dot text-accent" /> Public catalogs only — no login required</span>
           <span className="hidden sm:inline">·</span>
-          <span>Free for your first 50 products</span>
+          <span>CSV export for Shopify & WooCommerce</span>
         </div>
 
-        {/* Preview mock */}
-        <div
-          className="mt-10 md:mt-[72px] bg-white border border-line rounded-[14px] text-left overflow-hidden"
-          style={{ boxShadow: "0 30px 80px -40px rgba(14,14,12,0.25)" }}
-        >
-          <div className="h-9 border-b border-line flex items-center px-3.5 gap-2 bg-surface2">
-            <div className="flex gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full bg-line" />
-              <div className="w-2.5 h-2.5 rounded-full bg-line" />
-              <div className="w-2.5 h-2.5 rounded-full bg-line" />
+        {/* How it works */}
+        <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
+          {[
+            { n: "01", t: "Paste the store URL", d: "Works on any Shopify or WooCommerce storefront. Choose Other for a single product URL." },
+            { n: "02", t: "We pull the full catalog", d: "Titles, prices, variants, images, SKUs, categories. No API keys, no setup." },
+            { n: "03", t: "Download import-ready CSV", d: "Shopify CSV and WooCommerce CSV both supported. Upload straight into the other platform." },
+          ].map((s) => (
+            <div key={s.n} className="card p-5">
+              <div className="font-mono text-[11px] text-muted mb-2">{s.n}</div>
+              <div className="text-[15px] font-[560] tracking-tight2 mb-1.5">{s.t}</div>
+              <div className="text-[13px] text-muted leading-[1.55]">{s.d}</div>
             </div>
-            <div className="flex-1" />
-            <div className="font-mono text-[10px] md:text-[11px] text-muted truncate">app.prodlyft.com/imports/ntwnd-4129</div>
-            <div className="flex-1 hidden sm:block" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr] min-h-[320px]">
-            <div className="p-5 md:p-7 border-b md:border-b-0 md:border-r border-line">
-              <div className="text-[11.5px] text-muted uppercase tracking-wider mb-2.5">Extracted</div>
-              <div className="text-[20px] md:text-[22px] font-[560] tracking-tight2 mb-1">Field Notebook · Classic</div>
-              <div className="text-[13px] text-muted mb-5">Northwind Supply Co. · SKU FN-0412</div>
-              <div className="flex gap-2 mb-5 flex-wrap">
-                <span className="chip">Stationery</span>
-                <span className="chip">Notebooks</span>
-                <span className="chip chip-accent"><span className="dot" /> 4 variants</span>
-              </div>
-              <div className="text-[13px] text-ink-2 leading-[1.55]">
-                Hand-stitched 64-page pocket notebook with recycled kraft cover. Lay-flat binding, acid-free cream paper, rounded corners.
-              </div>
-              <div className="h-px bg-line my-5" />
-              <div className="grid grid-cols-3 gap-4">
-                <div><div className="text-[11px] text-muted">Price</div><div className="text-[15px] font-medium">$14.00</div></div>
-                <div><div className="text-[11px] text-muted">Compare</div><div className="text-[15px] font-medium text-muted">$18.00</div></div>
-                <div><div className="text-[11px] text-muted">Weight</div><div className="text-[15px] font-medium">120 g</div></div>
-              </div>
-            </div>
-            <div className="p-5 md:p-7 bg-surface2">
-              <div className="ph w-full mb-2" style={{ aspectRatio: "1/1" }}>NOTEBOOK · 01</div>
-              <div className="grid grid-cols-4 gap-2">
-                {["02", "03", "04", "05"].map((n) => (
-                  <div key={n} className="ph" style={{ aspectRatio: "1/1" }}>{n}</div>
-                ))}
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
       <section className="mt-16 md:mt-20 pt-12 md:pt-[72px] pb-12 px-4 md:px-12 border-t border-line-2">
         <div className="text-center text-[11.5px] text-muted uppercase tracking-wider mb-[22px]">Used by 4,200+ merchants</div>
         <div className="flex justify-center gap-6 md:gap-12 flex-wrap font-mono text-[12px] md:text-[14px] tracking-[0.15em] text-muted-2">
-          {logos.map((l) => (<span key={l}>{l}</span>))}
+          {["ALBA", "NORTHWIND", "KOFI", "LUMEN", "PARITY", "FIELDNOTE"].map((l) => (<span key={l}>{l}</span>))}
         </div>
       </section>
     </div>

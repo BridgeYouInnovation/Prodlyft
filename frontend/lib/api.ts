@@ -1,51 +1,66 @@
-export type JobStatus = "pending" | "processing" | "done" | "failed";
+export type CrawlStatus = "pending" | "processing" | "done" | "failed";
+export type Platform = "shopify" | "woocommerce" | "other" | "auto";
+export type CrawlMode = "catalog" | "single";
 
-export interface CleanedProduct {
+export interface ProductRow {
+  id: string;
   title: string | null;
-  short_description?: string | null;
-  description: string | null;
-  price: number | null;
-  currency: string;
-  categories: string[];
-  tags?: string[];
+  handle: string | null;
   sku: string | null;
-  brand?: string | null;
+  brand: string | null;
+  price: number | null;
+  compare_at_price: number | null;
+  currency: string;
+  short_description: string | null;
+  description: string | null;
+  categories: string[];
+  tags: string[];
   images: string[];
+  variants: Record<string, unknown>[];
   in_stock: boolean | null;
-  source_url?: string;
+  source_url: string | null;
 }
 
-export interface Job {
+export interface Crawl {
   id: string;
   url: string;
-  status: JobStatus;
+  platform: string;
+  mode: CrawlMode;
+  status: CrawlStatus;
   error: string | null;
-  result: CleanedProduct | null;
-  progress: { step?: string; [k: string]: unknown } | null;
+  progress: { step?: string; done?: number; total?: number | null; [k: string]: unknown } | null;
+  total: number;
+  product_count?: number;
+  thumbnails?: string[];
+  products?: ProductRow[];
   created_at: string | null;
   updated_at: string | null;
 }
 
 const base = "/api";
 
-export async function createImport(url: string): Promise<{ job_id: string }> {
-  const r = await fetch(`${base}/import`, {
+export async function createCrawl(url: string, platform: Platform = "auto"): Promise<{ crawl_id: string; platform: string; mode: CrawlMode }> {
+  const r = await fetch(`${base}/crawl`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, platform }),
   });
-  if (!r.ok) throw new Error(`Import failed: ${r.status} ${await r.text()}`);
+  if (!r.ok) throw new Error(`Crawl failed: ${r.status} ${await r.text()}`);
   return r.json();
 }
 
-export async function getJob(id: string): Promise<Job> {
-  const r = await fetch(`${base}/job/${id}`, { cache: "no-store" });
-  if (!r.ok) throw new Error(`Job lookup failed: ${r.status}`);
+export async function getCrawl(id: string, includeProducts = true): Promise<Crawl> {
+  const r = await fetch(`${base}/crawl/${id}?include_products=${includeProducts}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(`Crawl lookup failed: ${r.status}`);
   return r.json();
 }
 
-export async function listJobs(limit = 20): Promise<Job[]> {
-  const r = await fetch(`${base}/jobs?limit=${limit}`, { cache: "no-store" });
-  if (!r.ok) throw new Error(`Jobs list failed: ${r.status}`);
+export async function listCrawls(limit = 20): Promise<Crawl[]> {
+  const r = await fetch(`${base}/crawls?limit=${limit}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(`List failed: ${r.status}`);
   return r.json();
+}
+
+export function exportCrawlUrl(id: string, format: "shopify" | "woocommerce"): string {
+  return `${base}/crawl/${id}/export?format=${format}`;
 }

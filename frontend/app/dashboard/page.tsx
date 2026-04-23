@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { Icons } from "@/components/Icons";
-import { listJobs, createImport, type Job } from "@/lib/api";
+import { listCrawls, createCrawl, type Crawl } from "@/lib/api";
 
 function hostname(u: string) {
   try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; }
@@ -22,9 +22,9 @@ function timeAgo(iso: string | null) {
 
 function StatusPill({ s }: { s: string }) {
   const map: Record<string, { label: string; cls: string; dot: string }> = {
-    done:       { label: "Synced",     cls: "chip-accent", dot: "var(--accent)" },
+    done:       { label: "Done",       cls: "chip-accent", dot: "var(--accent)" },
     pending:    { label: "Queued",     cls: "",            dot: "var(--muted-2)" },
-    processing: { label: "Processing", cls: "chip-warn",   dot: "oklch(0.65 0.13 70)" },
+    processing: { label: "Running",    cls: "chip-warn",   dot: "oklch(0.65 0.13 70)" },
     failed:     { label: "Failed",     cls: "",            dot: "var(--danger)" },
   };
   const m = map[s] ?? map.pending;
@@ -38,13 +38,13 @@ function StatusPill({ s }: { s: string }) {
 
 export default function Dashboard() {
   const router = useRouter();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [crawls, setCrawls] = useState<Crawl[]>([]);
   const [quickUrl, setQuickUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    const tick = () => listJobs(20).then((r) => alive && setJobs(r)).catch(() => {});
+    const tick = () => listCrawls(20).then((r) => alive && setCrawls(r)).catch(() => {});
     tick();
     const t = setInterval(tick, 4000);
     return () => { alive = false; clearInterval(t); };
@@ -55,18 +55,19 @@ export default function Dashboard() {
     if (!quickUrl.trim()) return;
     setSubmitting(true);
     try {
-      const { job_id } = await createImport(quickUrl.trim());
-      router.push(`/imports/${job_id}`);
+      const { crawl_id } = await createCrawl(quickUrl.trim(), "auto");
+      router.push(`/crawls/${crawl_id}`);
     } catch {
       setSubmitting(false);
     }
   }
 
+  const totalProducts = crawls.reduce((a, c) => a + (c.total || c.product_count || 0), 0);
   const stats = [
-    { label: "Imports this month", value: String(jobs.length), delta: `+${jobs.filter(j => j.status === "done").length}`, trend: "up" },
-    { label: "Products synced", value: String(jobs.filter(j => j.status === "done").length), delta: "", trend: "up" },
-    { label: "Processing", value: String(jobs.filter(j => j.status === "processing" || j.status === "pending").length), delta: "", trend: "flat" },
-    { label: "Failed", value: String(jobs.filter(j => j.status === "failed").length), delta: "", trend: "down" },
+    { label: "Extracts this month", value: String(crawls.length), delta: `+${crawls.filter(c => c.status === "done").length}`, trend: "up" },
+    { label: "Products pulled", value: String(totalProducts), delta: "", trend: "up" },
+    { label: "Running", value: String(crawls.filter(c => c.status === "processing" || c.status === "pending").length), delta: "", trend: "flat" },
+    { label: "Failed", value: String(crawls.filter(c => c.status === "failed").length), delta: "", trend: "down" },
   ];
 
   return (
@@ -79,8 +80,7 @@ export default function Dashboard() {
           </div>
           <div className="sm:flex-1" />
           <div className="flex gap-2">
-            <button className="btn"><Icons.Download size={14}/> <span className="hidden sm:inline">Export</span></button>
-            <Link href="/imports/new" className="btn-primary"><Icons.Plus size={14}/> New import</Link>
+            <Link href="/" className="btn-primary"><Icons.Plus size={14}/> New extract</Link>
           </div>
         </div>
 
@@ -109,43 +109,46 @@ export default function Dashboard() {
         <div className="grid gap-5 grid-cols-1 lg:grid-cols-[1fr_320px]">
           <div className="card overflow-hidden min-w-0">
             <div className="px-4 py-3.5 flex items-center gap-2.5">
-              <div className="text-sm font-medium">Recent imports</div>
-              <span className="chip">{jobs.length}</span>
+              <div className="text-sm font-medium">Recent extracts</div>
+              <span className="chip">{crawls.length}</span>
               <div className="flex-1" />
-              <button className="btn-sm btn-ghost hidden sm:inline-flex"><Icons.Filter size={12}/> All statuses</button>
               <button className="btn-sm btn-ghost"><Icons.Sort size={12}/> Newest</button>
             </div>
             <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
-                    <th style={{ width: 36 }}></th>
-                    <th>Product</th>
-                    <th className="hidden sm:table-cell">Source</th>
+                    <th>Source</th>
+                    <th className="hidden sm:table-cell">Platform</th>
+                    <th>Products</th>
                     <th>Status</th>
                     <th className="hidden md:table-cell">Updated</th>
-                    <th style={{ width: 40 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {jobs.length === 0 && (
-                    <tr><td colSpan={6} className="text-center text-muted py-10">No imports yet. Paste a URL to start.</td></tr>
+                  {crawls.length === 0 && (
+                    <tr><td colSpan={5} className="text-center text-muted py-10">No extracts yet. Paste a store URL to start.</td></tr>
                   )}
-                  {jobs.map((r) => (
-                    <tr key={r.id} className="cursor-pointer" onClick={() => router.push(`/imports/${r.id}`)}>
+                  {crawls.map((c) => (
+                    <tr key={c.id} className="cursor-pointer" onClick={() => router.push(`/crawls/${c.id}`)}>
                       <td>
-                        {r.result?.images?.[0] ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={r.result.images[0]} alt="" className="w-7 h-7 rounded object-cover border border-line" />
-                        ) : (
-                          <div className="ph w-7 h-7 rounded" style={{ fontSize: 8 }}>{r.id.slice(0, 4).toUpperCase()}</div>
-                        )}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex -space-x-1.5 flex-shrink-0">
+                            {(c.thumbnails || []).slice(0, 3).map((src, i) => (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={i} src={src} alt="" className="w-6 h-6 rounded object-cover border border-line bg-white" />
+                            ))}
+                            {(!c.thumbnails || c.thumbnails.length === 0) && (
+                              <div className="ph w-6 h-6 rounded" style={{ fontSize: 8 }}>—</div>
+                            )}
+                          </div>
+                          <span className="font-mono text-[11.5px] text-muted truncate">{hostname(c.url)}</span>
+                        </div>
                       </td>
-                      <td className="font-medium text-ink max-w-[180px] md:max-w-none truncate">{r.result?.title ?? <span className="text-muted">—</span>}</td>
-                      <td className="hidden sm:table-cell"><span className="font-mono text-[11.5px] text-muted">{hostname(r.url)}</span></td>
-                      <td><StatusPill s={r.status} /></td>
-                      <td className="hidden md:table-cell text-muted">{timeAgo(r.updated_at)}</td>
-                      <td><Icons.Dots size={14} className="text-muted-2"/></td>
+                      <td className="hidden sm:table-cell capitalize">{c.platform}</td>
+                      <td className="font-medium">{c.total || c.product_count || 0}</td>
+                      <td><StatusPill s={c.status} /></td>
+                      <td className="hidden md:table-cell text-muted">{timeAgo(c.updated_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -156,79 +159,33 @@ export default function Dashboard() {
           <div className="flex flex-col gap-4">
             <form onSubmit={quickSubmit} className="card p-4">
               <div className="flex items-center gap-1.5 text-[13px] font-medium mb-1">
-                <Icons.Link size={13} /> Quick import
+                <Icons.Link size={13} /> Quick extract
               </div>
-              <p className="text-[12px] text-muted mb-2.5">Paste any product URL.</p>
+              <p className="text-[12px] text-muted mb-2.5">Paste any store URL — platform auto-detected.</p>
               <input
                 className="input input-mono"
-                placeholder="https://..."
+                placeholder="store.myshopify.com"
                 value={quickUrl}
                 onChange={(e) => setQuickUrl(e.target.value)}
               />
-              <div className="flex gap-1.5 mt-2">
-                <button type="submit" disabled={submitting} className="btn-primary btn-sm flex-1">{submitting ? "Queuing…" : "Extract"}</button>
-                <button type="button" className="btn btn-sm">Bulk CSV</button>
-              </div>
+              <button type="submit" disabled={submitting} className="btn-primary btn-sm w-full mt-2">
+                {submitting ? "Queuing…" : "Extract catalog"}
+              </button>
             </form>
 
             <div className="card p-4">
-              <div className="flex items-center mb-2.5">
-                <div className="text-[13px] font-medium flex items-center gap-1.5">
-                  <Icons.Bolt size={13} /> Automations
-                </div>
-                <div className="flex-1" />
-                <span className="chip chip-accent">3 on</span>
-              </div>
-              {[
-                { n: "Auto-sync new imports → Shopify", on: true },
-                { n: "Rewrite titles with AI", on: true },
-                { n: "Markup prices +20%", on: true },
-                { n: "Flag low-res images", on: false },
-              ].map((a, i) => (
-                <div key={i} className={`flex items-center py-2 ${i === 0 ? "" : "border-t border-line-2"}`}>
-                  <span className="text-[12.5px] text-ink-2 flex-1">{a.n}</span>
-                  <Toggle on={a.on} />
-                </div>
-              ))}
-            </div>
-
-            <div className="card p-4">
               <div className="text-[13px] font-medium mb-2.5 flex items-center gap-1.5">
-                <Icons.Plug size={13} /> Connections
+                <Icons.Sparkle size={13} className="text-accent" /> Tips
               </div>
-              {[
-                { n: "acme.myshopify.com", t: "Shopify", color: "#95BF47" },
-                { n: "wp.acmehome.com", t: "WooCommerce", color: "#7F54B3" },
-              ].map((c, i) => (
-                <div key={i} className={`flex items-center py-2.5 ${i === 0 ? "" : "border-t border-line-2"}`}>
-                  <div className="w-5 h-5 rounded mr-2.5 relative" style={{ background: c.color, opacity: 0.15 }}>
-                    <div className="absolute inset-1 rounded-sm" style={{ background: c.color }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12.5px] font-medium truncate">{c.n}</div>
-                    <div className="text-[11px] text-muted">{c.t}</div>
-                  </div>
-                  <span className="dot text-accent" />
-                </div>
-              ))}
+              <div className="text-[12.5px] text-muted leading-[1.55] space-y-2">
+                <p>For Shopify, the root domain is enough — e.g. <span className="font-mono">store.myshopify.com</span>.</p>
+                <p>For WordPress/WooCommerce, point at the shop root. Stores that disable the Blocks REST API may fail.</p>
+                <p>Pick <b>Other</b> on the landing for one-off product URLs.</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </Shell>
-  );
-}
-
-function Toggle({ on }: { on: boolean }) {
-  return (
-    <div
-      className="w-[26px] h-[14px] rounded-full relative transition-colors"
-      style={{ background: on ? "var(--ink)" : "var(--line)" }}
-    >
-      <div
-        className="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-[left]"
-        style={{ left: on ? 14 : 2 }}
-      />
-    </div>
   );
 }

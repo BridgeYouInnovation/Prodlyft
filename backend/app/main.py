@@ -1,12 +1,18 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from .config import get_settings
+from .csv_export import shopify_csv, woocommerce_csv
 from .db import SessionLocal, init_db
-from .models import Job
+from .models import Crawl
 from .queue import queue
-from .schemas import ImportRequest, ImportResponse, JobResponse
+from .schemas import (
+    CrawlCreateRequest,
+    CrawlCreateResponse,
+    CrawlOut,
+)
 
 
 @asynccontextmanager
@@ -17,7 +23,7 @@ async def lifespan(app: FastAPI):
 
 settings = get_settings()
 
-app = FastAPI(title="Prodlyft API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Prodlyft API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -32,36 +38,89 @@ def health():
     return {"ok": True}
 
 
-@app.post("/import", response_model=ImportResponse, status_code=202)
-def create_import(body: ImportRequest):
+@app.post("/crawl", response_model=CrawlCreateResponse, status_code=202)
+def create_crawl(body: CrawlCreateRequest):
     url = str(body.url)
+    platform = body.platform
+    mode = "single" if platform == "other" else "catalog"
     with SessionLocal() as s:
-        job = Job(url=url, status="pending", progress={"step": "queued"})
-        s.add(job)
+        c = Crawl(
+            url=url,
+            platform=platform,
+            mode=mode,
+            status="pending",
+            progress={"step": "queued"},
+        )
+        s.add(c)
         s.commit()
-        s.refresh(job)
-        job_id = job.id
-    queue.enqueue("app.worker.process_import", job_id, job_id=f"prodlyft:{job_id}")
-    return ImportResponse(job_id=job_id)
+        s.refresh(c)
+        crawl_id = c.id
+        resolved_platform = c.platform
+        resolved_mode = c.mode
+    queue.enqueue("app.worker.process_crawl", crawl_id, job_id=f"prodlyft:{crawl_id}")
+    return CrawlCreateResponse(crawl_id=crawl_id, platform=resolved_platform, mode=resolved_mode)
 
 
-@app.get("/job/{job_id}", response_model=JobResponse)
-def get_job(job_id: str):
+@app.get("/crawl/{crawl_id}", response_model=CrawlOut)
+def get_crawl(crawl_id: str, include_products: bool = Query(True)):
     with SessionLocal() as s:
-        job = s.get(Job, job_id)
-        if not job:
-            raise HTTPException(404, "Job not found")
-        return JobResponse(**job.to_dict())
+        c = s.get(Crawl, crawl_id)
+        if not c:
+            raise HTTPException(404, "Crawl not found")
+        return CrawlOut(**c.to_dict(include_products=include_products))
 
 
-@app.get("/jobs", response_model=list[JobResponse])
-def list_jobs(limit: int = 20):
+@app.get("/crawls", response_model=list[CrawlOut])
+def list_crawls(limit: int = 20):
     limit = max(1, min(limit, 100))
     with SessionLocal() as s:
         rows = (
-            s.query(Job)
-            .order_by(Job.created_at.desc())
+            s.query(Crawl)
+            .order_by(Crawl.created_at.desc())
             .limit(limit)
             .all()
         )
-        return [JobResponse(**r.to_dict()) for r in rows]
+        return [CrawlOut(**r.to_dict(include_products=False)) for r in rows]
+
+
+@app.get("/crawl/{crawl_id}/export")
+def export_crawl(crawl_id: str, format: str = Query("shopify")):
+    fmt = format.lower()
+    if fmt not in ("shopify", "woocommerce", "woo"):
+        raise HTTPException(400, "format must be 'shopify' or 'woocommerce'")
+    with SessionLocal() as s:
+        c = s.get(Crawl, crawl_id)
+        if not c:
+            raise HTTPException(404, "Crawl not found")
+        if c.status != "done":
+            raise HTTPException(409, f"Crawl status is '{c.status}', not 'done'")
+        products = [p.to_dict() for p in c.products]
+
+    if fmt == "shopify":
+        body = shopify_csv(products)
+        filename = f"prodlyft-{crawl_id[:8]}-shopify.csv"
+    else:
+        body = woocommerce_csv(products)
+        filename = f"prodlyft-{crawl_id[:8]}-woocommerce.csv"
+
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# Back-compat shims so older paths don't break during transition.
+@app.post("/import", response_model=CrawlCreateResponse, status_code=202, deprecated=True)
+def legacy_import(body: CrawlCreateRequest):
+    return create_crawl(body)
+
+
+@app.get("/job/{crawl_id}", response_model=CrawlOut, deprecated=True)
+def legacy_job(crawl_id: str):
+    return get_crawl(crawl_id, include_products=True)
+
+
+@app.get("/jobs", response_model=list[CrawlOut], deprecated=True)
+def legacy_jobs(limit: int = 20):
+    return list_crawls(limit=limit)

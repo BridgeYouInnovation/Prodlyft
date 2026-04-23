@@ -1,25 +1,58 @@
 from datetime import datetime
 from typing import Any, Literal
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, ConfigDict
 
 
-class ImportRequest(BaseModel):
+Platform = Literal["shopify", "woocommerce", "other", "auto"]
+CrawlStatus = Literal["pending", "processing", "done", "failed"]
+CrawlMode = Literal["catalog", "single"]
+
+
+class CrawlCreateRequest(BaseModel):
     url: HttpUrl
+    platform: Platform = "auto"
 
 
-class ImportResponse(BaseModel):
-    job_id: str
+class CrawlCreateResponse(BaseModel):
+    crawl_id: str
+    platform: str
+    mode: str
 
 
-JobStatus = Literal["pending", "processing", "done", "failed"]
+class ProductOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    title: str | None = None
+    handle: str | None = None
+    sku: str | None = None
+    brand: str | None = None
+    price: float | None = None
+    compare_at_price: float | None = None
+    currency: str = "USD"
+    short_description: str | None = None
+    description: str | None = None
+    categories: list[str] = []
+    tags: list[str] = []
+    images: list[str] = []
+    variants: list[dict[str, Any]] = []
+    in_stock: bool | None = None
+    source_url: str | None = None
 
 
-class JobResponse(BaseModel):
+class CrawlOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     id: str
     url: str
-    status: JobStatus
+    platform: str
+    mode: str
+    status: CrawlStatus
     error: str | None = None
-    result: dict[str, Any] | None = None
     progress: dict[str, Any] | None = None
+    total: int = 0
+    product_count: int | None = None
+    thumbnails: list[str] = []
+    products: list[ProductOut] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
