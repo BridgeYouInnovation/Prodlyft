@@ -60,33 +60,33 @@ export default function Landing() {
           Scrape any Shopify or WooCommerce store in seconds
         </div>
 
-        <h1 className="text-[36px] sm:text-5xl md:text-6xl lg:text-[60px] font-[560] leading-[1.05] md:leading-[1.02] tracking-tight3 mb-4 md:mb-5">
-          Pull full product catalogs<br />
-          <span className="text-muted">from any URL, in seconds.</span>
+        <h1 className="text-[30px] sm:text-[42px] md:text-[52px] lg:text-[60px] font-[560] leading-[1.08] md:leading-[1.02] tracking-tight3 mb-4 md:mb-5 px-2 sm:px-0">
+          Pull full product catalogs<br className="hidden sm:inline" />
+          <span className="text-muted"> from any URL, in seconds.</span>
         </h1>
-        <p className="text-[15px] md:text-[17px] text-muted max-w-[560px] mx-auto mb-8 md:mb-10 leading-[1.5]">
+        <p className="text-[14px] md:text-[17px] text-muted max-w-[560px] mx-auto mb-7 md:mb-10 leading-[1.55] px-2 sm:px-0">
           Paste a store URL. Prodlyft auto-detects the platform, pulls every product, and hands you an import-ready CSV for Shopify or WooCommerce.
         </p>
 
         {/* Platform tiles */}
-        <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4 max-w-[640px] mx-auto">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-3 mb-4 max-w-[640px] mx-auto">
           {platforms.map((p) => (
             <button
               key={p.id}
               onClick={() => setPick(p.id)}
-              className="text-left rounded-lg border p-3 md:p-4 transition-colors bg-white"
+              className="text-left rounded-lg border p-2.5 sm:p-4 transition-colors bg-white min-w-0"
               style={{
                 borderColor: pick === p.id ? "var(--ink)" : "var(--line)",
                 boxShadow: pick === p.id ? "0 0 0 3px rgba(14,14,12,0.06)" : "none",
               }}
             >
-              <div className="flex items-center gap-2 mb-1.5">
-                <div className="w-6 h-6 rounded relative flex-shrink-0" style={{ background: p.color, opacity: 0.15 }}>
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded relative flex-shrink-0" style={{ background: p.color, opacity: 0.15 }}>
                   <div className="absolute inset-1 rounded-sm" style={{ background: p.color }} />
                 </div>
-                <div className="text-[13px] font-medium">{p.name}</div>
+                <div className="text-[12px] sm:text-[13px] font-medium truncate">{p.name}</div>
               </div>
-              <div className="text-[11px] md:text-[11.5px] text-muted leading-[1.35]">{p.sub}</div>
+              <div className="text-[10.5px] sm:text-[11.5px] text-muted leading-[1.35] line-clamp-2">{p.sub}</div>
             </button>
           ))}
         </div>

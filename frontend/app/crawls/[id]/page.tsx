@@ -74,12 +74,12 @@ export default function CrawlDetail() {
           </div>
           <div className="sm:flex-1" />
           {crawl?.status === "done" && (
-            <div className="flex gap-2 self-start sm:self-auto">
-              <a href={exportCrawlUrl(id, "shopify")} className="btn">
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <a href={exportCrawlUrl(id, "shopify")} className="btn flex-1 sm:flex-initial justify-center">
                 <Icons.Download size={14}/> Shopify CSV
               </a>
-              <a href={exportCrawlUrl(id, "woocommerce")} className="btn-primary">
-                <Icons.Download size={14}/> WooCommerce CSV
+              <a href={exportCrawlUrl(id, "woocommerce")} className="btn-primary flex-1 sm:flex-initial justify-center">
+                <Icons.Download size={14}/> Woo CSV
               </a>
             </div>
           )}
@@ -134,7 +134,7 @@ export default function CrawlDetail() {
         {/* Summary + search */}
         {crawl?.status === "done" && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-5">
               <Stat label="Products" value={String(crawl.products?.length ?? 0)} />
               <Stat label="With images" value={String((crawl.products || []).filter(p => (p.images || []).length > 0).length)} />
               <Stat label="With price" value={String((crawl.products || []).filter(p => p.price != null).length)} />
@@ -216,9 +216,9 @@ export default function CrawlDetail() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card px-4 py-3.5">
-      <div className="text-[11.5px] text-muted mb-1.5">{label}</div>
-      <div className="text-2xl font-[560] tracking-tight2 capitalize">{value}</div>
+    <div className="card px-3 md:px-4 py-3 md:py-3.5 min-w-0">
+      <div className="text-[11px] md:text-[11.5px] text-muted mb-1 md:mb-1.5 truncate">{label}</div>
+      <div className="text-[18px] md:text-2xl font-[560] tracking-tight2 capitalize truncate">{value}</div>
     </div>
   );
 }
