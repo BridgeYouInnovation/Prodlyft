@@ -1,24 +1,32 @@
 import NextAuth from "next-auth";
-import PostgresAdapter from "@auth/pg-adapter";
-import Resend from "next-auth/providers/resend";
-import { Pool } from "pg";
+import Credentials from "next-auth/providers/credentials";
+import bcrypt from "bcryptjs";
 import authConfig from "./auth.config";
-
-// Use DATABASE_URL in the exact format node-postgres expects (postgres:// or
-// postgresql://), NOT the SQLAlchemy "+psycopg" form used by the backend.
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("railway") ? { rejectUnauthorized: false } : undefined,
-  max: 3,
-});
+import { findUserByEmail } from "./lib/db";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
-  adapter: PostgresAdapter(pool),
   providers: [
-    Resend({
-      apiKey: process.env.AUTH_RESEND_KEY,
-      from: process.env.AUTH_EMAIL_FROM ?? "onboarding@resend.dev",
+    Credentials({
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        const email = String(credentials?.email ?? "").trim().toLowerCase();
+        const password = String(credentials?.password ?? "");
+        if (!email || !password) return null;
+        const user = await findUserByEmail(email);
+        if (!user || !user.password) return null;
+        const ok = await bcrypt.compare(password, user.password);
+        if (!ok) return null;
+        return {
+          id: String(user.id),
+          email: user.email,
+          name: user.name,
+          image: user.image,
+        };
+      },
     }),
   ],
 });

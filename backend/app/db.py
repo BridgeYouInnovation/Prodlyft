@@ -51,8 +51,11 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255),
   email VARCHAR(255) UNIQUE,
   "emailVerified" TIMESTAMPTZ,
-  image TEXT
+  image TEXT,
+  password TEXT
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT;
 """
 
 

@@ -114,7 +114,7 @@ export function LandingHeader() {
       ) : (
         <div className="flex items-center gap-2 text-[13px]">
           <Link href="/signin" className="text-muted hover:text-ink hidden sm:inline">Sign in</Link>
-          <Link href="/signin" className="btn-primary">Start free</Link>
+          <Link href="/signup" className="btn-primary">Start free</Link>
         </div>
       )}
 

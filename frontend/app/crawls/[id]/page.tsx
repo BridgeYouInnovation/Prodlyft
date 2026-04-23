@@ -148,14 +148,22 @@ export default function CrawlDetail() {
             <p className="text-[13.5px] text-muted mb-5 leading-[1.55]">
               Sign in to view the full product list and download the Shopify or WooCommerce CSV.
             </p>
-            <Link
-              href={`/signin?callbackUrl=${encodeURIComponent(pathname)}`}
-              className="btn-primary btn-lg"
-            >
-              Sign in with email <Icons.ArrowRight size={14} />
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <Link
+                href={`/signup?callbackUrl=${encodeURIComponent(pathname)}`}
+                className="btn-primary btn-lg"
+              >
+                Create account <Icons.ArrowRight size={14} />
+              </Link>
+              <Link
+                href={`/signin?callbackUrl=${encodeURIComponent(pathname)}`}
+                className="btn btn-lg"
+              >
+                Sign in
+              </Link>
+            </div>
             <div className="mt-3 text-[11.5px] text-muted-2">
-              No password — we'll email you a magic link.
+              Free — no credit card required.
             </div>
           </div>
         )}
