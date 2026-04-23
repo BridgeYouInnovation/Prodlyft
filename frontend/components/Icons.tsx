@@ -45,4 +45,5 @@ export const Icons = {
   Branch: (p: IconProps) => (<I {...p}><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10"/><path d="M8 5h4a4 4 0 0 1 4 4v1"/></I>),
   Play: (p: IconProps) => (<I {...p}><path d="M7 4v16l13-8L7 4Z"/></I>),
   Globe: (p: IconProps) => (<I {...p}><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></I>),
+  Menu: (p: IconProps) => (<I {...p}><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></I>),
 };
