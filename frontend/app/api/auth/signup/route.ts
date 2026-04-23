@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { findUserByEmail, createUser } from "@/lib/db";
 
+export const runtime = "nodejs";
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
@@ -27,13 +29,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
   }
 
-  const existing = await findUserByEmail(emailNorm);
-  if (existing) {
-    return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
+  try {
+    const existing = await findUserByEmail(emailNorm);
+    if (existing) {
+      return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
+    }
+    const hash = await bcrypt.hash(pw, 10);
+    const displayName = typeof name === "string" && name.trim() ? name.trim() : null;
+    await createUser(emailNorm, hash, displayName);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("[signup] DB error:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      { error: `DB error: ${msg.slice(0, 220)}` },
+      { status: 500 },
+    );
   }
-
-  const hash = await bcrypt.hash(pw, 10);
-  const displayName = typeof name === "string" && name.trim() ? name.trim() : null;
-  await createUser(emailNorm, hash, displayName);
-  return NextResponse.json({ ok: true });
 }
