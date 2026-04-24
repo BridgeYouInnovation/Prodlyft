@@ -104,13 +104,22 @@ def process_crawl(crawl_id: str) -> None:
             # Single product — rule-based heuristics first, AI-guided config
             # as a fallback when heuristics don't find a title or price.
             _update(crawl_id, progress={"step": "fetching"})
+            print(f"[worker] fetching {url}", flush=True)
             html = fetch_html(url)
+            print(f"[worker] fetched html_chars={len(html)}", flush=True)
+
             _update(crawl_id, progress={"step": "parsing"})
             raw = extract_heuristic(html, url)
+            print(
+                f"[worker] heuristic: title={raw.get('title')!r} price={raw.get('price')} images={len(raw.get('images') or [])}",
+                flush=True,
+            )
 
             if not raw.get("title") or raw.get("price") is None:
+                print("[worker] heuristic gaps → trying AI config", flush=True)
                 _update(crawl_id, progress={"step": "config"})
                 cfg, from_cache = get_or_generate_config(url, html)
+                print(f"[worker] ai config: hit_cache={from_cache} got_cfg={bool(cfg)}", flush=True)
                 if cfg:
                     _update(
                         crawl_id,
@@ -121,6 +130,10 @@ def process_crawl(crawl_id: str) -> None:
                         },
                     )
                     ai_raw = extract_with_config(html, cfg, url)
+                    print(
+                        f"[worker] ai extract: title={ai_raw.get('title')!r} price={ai_raw.get('price')} images={len(ai_raw.get('images') or [])}",
+                        flush=True,
+                    )
                     # Merge: AI fills in only the fields the heuristic missed.
                     for k, v in ai_raw.items():
                         if v and not raw.get(k):

@@ -94,6 +94,27 @@ class Product(Base):
 
     crawl: Mapped["Crawl"] = relationship("Crawl", back_populates="products")
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "crawl_id": self.crawl_id,
+            "title": self.title,
+            "handle": self.handle,
+            "sku": self.sku,
+            "brand": self.brand,
+            "price": self.price,
+            "compare_at_price": self.compare_at_price,
+            "currency": self.currency,
+            "short_description": self.short_description,
+            "description": self.description,
+            "categories": self.categories or [],
+            "tags": self.tags or [],
+            "images": self.images or [],
+            "variants": self.variants or [],
+            "in_stock": self.in_stock,
+            "source_url": self.source_url,
+        }
+
 
 class ScrapeConfig(Base):
     """AI-generated scraping recipe for a domain that wasn't matched by
@@ -119,25 +140,4 @@ class ScrapeConfig(Base):
             "hit_count": self.hit_count,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-    def to_dict(self) -> dict:  # noqa: D401 — Product.to_dict
-        return {
-            "id": self.id,
-            "crawl_id": self.crawl_id,
-            "title": self.title,
-            "handle": self.handle,
-            "sku": self.sku,
-            "brand": self.brand,
-            "price": self.price,
-            "compare_at_price": self.compare_at_price,
-            "currency": self.currency,
-            "short_description": self.short_description,
-            "description": self.description,
-            "categories": self.categories or [],
-            "tags": self.tags or [],
-            "images": self.images or [],
-            "variants": self.variants or [],
-            "in_stock": self.in_stock,
-            "source_url": self.source_url,
         }

@@ -107,9 +107,13 @@ def _call_claude(url: str, html: str) -> dict | None:
                 },
                 json=payload,
             )
-            r.raise_for_status()
+            if r.status_code != 200:
+                print(f"[ai_scraper] openrouter http={r.status_code} body={r.text[:300]}", flush=True)
+                return None
             content = r.json()["choices"][0]["message"]["content"]
-    except Exception:
+            print(f"[ai_scraper] claude ok content_chars={len(content or '')}", flush=True)
+    except Exception as e:
+        print(f"[ai_scraper] exception calling claude: {e}", flush=True)
         return None
 
     # Parse JSON, tolerating the odd prose-wrapper.
