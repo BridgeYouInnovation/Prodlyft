@@ -25,11 +25,13 @@ export interface DbUser {
   name: string | null;
   image: string | null;
   password: string | null;
+  is_admin: boolean;
+  created_at: string | null;
 }
 
 export async function findUserByEmail(email: string): Promise<DbUser | null> {
   const r = await pool.query<DbUser>(
-    'SELECT id, email, name, image, password FROM users WHERE lower(email) = lower($1) LIMIT 1',
+    'SELECT id, email, name, image, password, is_admin, created_at FROM users WHERE lower(email) = lower($1) LIMIT 1',
     [email],
   );
   return r.rows[0] ?? null;
@@ -37,7 +39,7 @@ export async function findUserByEmail(email: string): Promise<DbUser | null> {
 
 export async function createUser(email: string, passwordHash: string, name: string | null = null): Promise<DbUser> {
   const r = await pool.query<DbUser>(
-    'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, image, password',
+    'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name, image, password, is_admin, created_at',
     [email, passwordHash, name],
   );
   return r.rows[0];

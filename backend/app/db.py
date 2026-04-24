@@ -52,11 +52,48 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE,
   "emailVerified" TIMESTAMPTZ,
   image TEXT,
-  password TEXT
+  password TEXT,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 """
+
+
+def _seed_admin() -> None:
+    """Create/ensure the admin account from ADMIN_SEED_EMAIL/ADMIN_SEED_PASSWORD env vars."""
+    email = (settings.admin_seed_email or "").strip().lower()
+    password = settings.admin_seed_password or ""
+    if not email or not password:
+        return
+    try:
+        import bcrypt
+        pw_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+    except Exception as e:
+        print(f"[seed_admin] bcrypt error: {e}", flush=True)
+        return
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT id, is_admin FROM users WHERE lower(email) = :e"),
+            {"e": email},
+        ).first()
+        if row is None:
+            conn.execute(
+                text(
+                    'INSERT INTO users (email, password, is_admin) VALUES (:e, :p, TRUE)'
+                ),
+                {"e": email, "p": pw_hash},
+            )
+            print(f"[seed_admin] created admin: {email}", flush=True)
+        else:
+            conn.execute(
+                text('UPDATE users SET is_admin = TRUE, password = :p WHERE id = :id'),
+                {"p": pw_hash, "id": row[0]},
+            )
+            print(f"[seed_admin] ensured admin + refreshed password: {email}", flush=True)
 
 
 def init_db() -> None:
@@ -67,6 +104,7 @@ def init_db() -> None:
             s = stmt.strip()
             if s:
                 conn.execute(text(s))
+    _seed_admin()
 
 
 @contextmanager
