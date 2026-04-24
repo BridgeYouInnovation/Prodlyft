@@ -160,18 +160,7 @@ export default function Dashboard() {
                     {crawls.map((c) => (
                       <tr key={c.id} className="cursor-pointer" onClick={() => router.push(`/crawls/${c.id}`)}>
                         <td>
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="flex -space-x-1.5 flex-shrink-0">
-                              {(c.thumbnails || []).slice(0, 3).map((src, i) => (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img key={i} src={src} alt="" className="w-6 h-6 rounded object-cover border border-line bg-white" />
-                              ))}
-                              {(!c.thumbnails || c.thumbnails.length === 0) && (
-                                <div className="ph w-6 h-6 rounded" style={{ fontSize: 8 }}>—</div>
-                              )}
-                            </div>
-                            <span className="font-mono text-[11.5px] text-muted truncate">{hostname(c.url)}</span>
-                          </div>
+                          <span className="font-mono text-[12px] text-muted">{hostname(c.url)}</span>
                         </td>
                         <td className="hidden sm:table-cell capitalize">{c.platform}</td>
                         <td className="font-medium">{c.total || c.product_count || 0}</td>

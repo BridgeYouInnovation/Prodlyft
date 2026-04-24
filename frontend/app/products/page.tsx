@@ -83,18 +83,11 @@ export default function ExtractsList() {
                   <StatusChip s={c.status} />
                 </div>
                 <div className="font-mono text-[12px] text-muted truncate mb-3">{hostname(c.url)}</div>
-                {c.thumbnails && c.thumbnails.length > 0 ? (
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {c.thumbnails.slice(0, 4).map((src, i) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={i} src={src} alt="" className="rounded border border-line object-cover bg-white" style={{ aspectRatio: "1/1" }} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="ph w-full" style={{ aspectRatio: "4/1", fontSize: 8 }}>
-                    {c.status === "failed" ? "EXTRACTION FAILED" : "NO IMAGES"}
-                  </div>
-                )}
+                <div className="text-[12.5px] text-muted">
+                  {c.status === "failed"
+                    ? "Extraction failed"
+                    : `${c.total || c.product_count || 0} product${(c.total || c.product_count || 0) === 1 ? "" : "s"}`}
+                </div>
               </Link>
             ))}
             {filtered.length === 0 && (

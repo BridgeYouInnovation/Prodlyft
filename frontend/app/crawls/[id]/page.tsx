@@ -205,7 +205,6 @@ export default function CrawlDetail() {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: 36 }}></th>
                       <th>Title</th>
                       <th className="hidden sm:table-cell">SKU</th>
                       <th>Price</th>
@@ -215,19 +214,11 @@ export default function CrawlDetail() {
                   </thead>
                   <tbody>
                     {filtered.length === 0 && (
-                      <tr><td colSpan={6} className="text-center text-muted py-10">No products matched.</td></tr>
+                      <tr><td colSpan={5} className="text-center text-muted py-10">No products matched.</td></tr>
                     )}
                     {pageRows.map((p) => (
                       <tr key={p.id}>
-                        <td>
-                          {p.images?.[0] ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={p.images[0]} alt="" className="w-8 h-8 rounded object-cover border border-line" />
-                          ) : (
-                            <div className="ph w-8 h-8 rounded" style={{ fontSize: 8 }}>—</div>
-                          )}
-                        </td>
-                        <td className="font-medium text-ink max-w-[240px] truncate">
+                        <td className="font-medium text-ink max-w-[280px] truncate">
                           {p.source_url ? (
                             <a href={p.source_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
                               {p.title || "Untitled"}
