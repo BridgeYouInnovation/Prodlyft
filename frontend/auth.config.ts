@@ -33,18 +33,30 @@ export default {
     },
     jwt({ token, user }) {
       if (user) {
-        const u = user as { id?: string | number; email?: string | null; is_admin?: boolean };
+        const u = user as {
+          id?: string | number;
+          email?: string | null;
+          is_admin?: boolean;
+          plan?: string;
+        };
         token.id = u.id;
         token.email = u.email;
         token.is_admin = !!u.is_admin;
+        token.plan = u.plan || "free";
       }
       return token;
     },
     session({ session, token }) {
       if (session.user) {
-        const t = token as { id?: string | number; is_admin?: boolean };
-        (session.user as { id?: string | number; is_admin?: boolean }).id = t.id;
-        (session.user as { id?: string | number; is_admin?: boolean }).is_admin = !!t.is_admin;
+        const t = token as { id?: string | number; is_admin?: boolean; plan?: string };
+        const su = session.user as {
+          id?: string | number;
+          is_admin?: boolean;
+          plan?: string;
+        };
+        su.id = t.id;
+        su.is_admin = !!t.is_admin;
+        su.plan = t.plan || "free";
       }
       return session;
     },

@@ -1,9 +1,10 @@
 "use client";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { Icons } from "./Icons";
 import { BrandMark } from "./BrandMark";
+import { FREE_LIFETIME_CAP, PRO_PERIOD_CAP, planLabel } from "@/lib/plans";
 
 export type NavId = "dashboard" | "extracts" | "admin";
 
@@ -22,11 +23,42 @@ export function Sidebar({
   onClose?: () => void;
 }) {
   const { data: session } = useSession();
-  const isAdmin = (session?.user as { is_admin?: boolean } | undefined)?.is_admin;
+  const sessionUser = session?.user as { is_admin?: boolean; plan?: string } | undefined;
+  const isAdmin = sessionUser?.is_admin;
+  const plan = (sessionUser?.plan || "free").toLowerCase();
   const email = session?.user?.email ?? "";
   const name = session?.user?.name;
   const display = name || email.split("@")[0] || "You";
   const initials = (name || email || "?").slice(0, 1).toUpperCase();
+
+  // Live usage — session.plan is static at login, usage changes as crawls
+  // complete, so we fetch and poll /api/me while the sidebar is mounted.
+  const [usage, setUsage] = useState<{ used: number; cap: number | null; remaining: number | null } | null>(null);
+  useEffect(() => {
+    if (!session?.user) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/me");
+        if (!r.ok) return;
+        const d = (await r.json()) as {
+          plan?: string;
+          products_used_in_period?: number;
+          products_used_total?: number;
+          remaining?: number | null;
+        };
+        if (!alive) return;
+        const p = (d.plan || "free").toLowerCase();
+        const used =
+          p === "pro" ? d.products_used_in_period ?? 0 : d.products_used_total ?? 0;
+        const cap = p === "unlimited" ? null : p === "pro" ? PRO_PERIOD_CAP : FREE_LIFETIME_CAP;
+        setUsage({ used, cap, remaining: d.remaining ?? null });
+      } catch { /* ignore */ }
+    };
+    tick();
+    const t = setInterval(tick, 10_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [session?.user]);
 
   useEffect(() => {
     if (!open) return;
@@ -114,26 +146,65 @@ export function Sidebar({
         <div className="flex-1" />
 
         {session?.user && (
-          <div className="border border-line bg-white rounded-lg p-2.5">
-            <div className="flex items-center gap-2 mb-2">
-              <div
-                className="w-6 h-6 rounded-full grid place-items-center text-white text-[11px] font-medium flex-shrink-0"
-                style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
-              >
-                {initials}
+          <>
+            {/* Plan + usage mini-card */}
+            <div className="border border-line bg-white rounded-lg p-2.5 mb-2">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Icons.Sparkle size={12} className={plan === "free" ? "text-muted" : "text-accent"} />
+                <span className="text-[11.5px] font-medium">Plan · {planLabel(plan)}</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-medium truncate">{display}</div>
-                <div className="text-[10.5px] text-muted truncate">{email}</div>
-              </div>
+              {usage && usage.cap !== null ? (
+                <>
+                  <div className="text-[10.5px] text-muted leading-snug">
+                    {usage.used} / {usage.cap.toLocaleString()} product{usage.cap === 1 ? "" : "s"}
+                    {plan === "pro" ? " this period" : " used"}
+                  </div>
+                  <div className="h-[3px] bg-line-2 rounded-full mt-1.5 overflow-hidden">
+                    <div
+                      className="h-full transition-[width]"
+                      style={{
+                        width: `${Math.min(100, (usage.used / usage.cap) * 100)}%`,
+                        background:
+                          usage.remaining === 0
+                            ? "var(--danger)"
+                            : usage.remaining && usage.remaining < usage.cap * 0.2
+                            ? "var(--warn)"
+                            : "var(--ink)",
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="text-[10.5px] text-muted">Unlimited extracts</div>
+              )}
+              {plan !== "unlimited" && (
+                <Link href="/pricing" onClick={onClose} className="block text-[10.5px] text-accent-ink hover:underline mt-1.5">
+                  {plan === "free" ? "Upgrade →" : "Upgrade to Unlimited →"}
+                </Link>
+              )}
             </div>
-            <button
-              onClick={() => signOut({ redirectTo: "/" })}
-              className="w-full text-[11.5px] py-1.5 rounded-md border border-line hover:bg-line-2 transition-colors"
-            >
-              Sign out
-            </button>
-          </div>
+
+            <div className="border border-line bg-white rounded-lg p-2.5">
+              <div className="flex items-center gap-2 mb-2">
+                <div
+                  className="w-6 h-6 rounded-full grid place-items-center text-white text-[11px] font-medium flex-shrink-0"
+                  style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
+                >
+                  {initials}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-medium truncate">{display}</div>
+                  <div className="text-[10.5px] text-muted truncate">{email}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => signOut({ redirectTo: "/" })}
+                className="w-full text-[11.5px] py-1.5 rounded-md border border-line hover:bg-line-2 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          </>
         )}
       </aside>
     </>

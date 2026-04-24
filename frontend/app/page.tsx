@@ -59,7 +59,13 @@ export default function Landing() {
       });
       router.push(`/crawls/${crawl_id}`);
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message;
+      // "Crawl failed: 402 {...}" when the proxy rejects over-quota users.
+      if (msg.includes("402")) {
+        setError("You're out of quota on your current plan. Upgrade to continue.");
+      } else {
+        setError(msg);
+      }
       setSubmitting(false);
     }
   }

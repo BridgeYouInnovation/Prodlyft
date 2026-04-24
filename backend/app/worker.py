@@ -14,6 +14,13 @@ from .ai_scraper import (
     get_or_generate_config,
     extract_with_config,
 )
+from .plans import (
+    QuotaExceeded,
+    compute_cap,
+    get_user,
+    maybe_reset_period,
+    record_usage,
+)
 
 
 # Safety cap — the most products we'll ever fetch from a single storefront in
@@ -81,6 +88,19 @@ def process_crawl(crawl_id: str) -> None:
         mode = c.mode
         user_max = c.max_products
         category_filter = (c.category_filter or "").strip()
+        user_id = c.user_id
+
+    # Plan enforcement — clamp user_max to whatever's left on the user's plan.
+    # Reset rolling period first if it's older than 30d.
+    user = get_user(user_id)
+    if user and (user.get("plan") or "free").lower() == "pro":
+        maybe_reset_period(user_id, user.get("plan_period_start"))
+        user = get_user(user_id)
+    try:
+        user_max = compute_cap(user, user_max)
+    except QuotaExceeded as e:
+        _update(crawl_id, status="failed", error=str(e), progress={"step": "quota_exceeded"})
+        return
 
     try:
         if platform == "auto":
@@ -157,6 +177,10 @@ def process_crawl(crawl_id: str) -> None:
             _insert_product(crawl_id, p)
             if i % 10 == 0 or i == len(products):
                 _update(crawl_id, progress={"step": "saving", "done": i, "total": len(products)})
+
+        # Track plan usage before marking done (so a /me poll after completion
+        # reflects the new counter).
+        record_usage(user_id, bool(user and user.get("is_admin")), len(products))
 
         _update(crawl_id, status="done", progress={"step": "done", "done": len(products), "total": len(products)}, error=None)
     except Exception as e:

@@ -1,0 +1,113 @@
+import Link from "next/link";
+import { headers } from "next/headers";
+import { LandingHeader } from "@/components/LandingHeader";
+import { Icons } from "@/components/Icons";
+import { PLANS, currencyFromCountry, formatPrice } from "@/lib/plans";
+
+export const dynamic = "force-dynamic";
+
+export default async function PricingPage() {
+  // Vercel sets x-vercel-ip-country on every request hitting our edge.
+  const h = await headers();
+  const country = h.get("x-vercel-ip-country");
+  const currency = currencyFromCountry(country);
+
+  return (
+    <div className="min-h-screen bg-bg">
+      <LandingHeader />
+
+      <section className="pt-12 md:pt-[72px] px-4 md:px-12 max-w-[1100px] mx-auto">
+        <div className="text-center mb-10 md:mb-14">
+          <div className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 bg-white border border-line rounded-full text-[11.5px] text-ink-2 mb-5">
+            <span className="chip chip-accent h-[18px]">Pricing</span>
+            Prices shown in{" "}
+            <span className="font-mono font-medium">
+              {currency === "XAF" ? "XAF (Cameroon)" : currency === "NGN" ? "NGN (Nigeria)" : "USD"}
+            </span>
+          </div>
+          <h1 className="text-[32px] sm:text-[44px] md:text-[52px] font-[560] leading-[1.05] tracking-tight3 mb-3 md:mb-4">
+            Simple pricing.<br className="hidden sm:inline" />
+            <span className="text-muted"> Scale as you grow.</span>
+          </h1>
+          <p className="text-[14px] md:text-[16px] text-muted max-w-[520px] mx-auto leading-[1.55]">
+            Start free, upgrade when you need more. Cancel any time.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+          {PLANS.map((p) => {
+            const price = p.prices[currency];
+            const isFree = p.id === "free";
+            return (
+              <div
+                key={p.id}
+                className="card p-6 flex flex-col relative"
+                style={{
+                  borderColor: p.highlight ? "var(--ink)" : "var(--line)",
+                  boxShadow: p.highlight ? "0 8px 32px -12px rgba(14,14,12,0.16)" : undefined,
+                }}
+              >
+                {p.highlight && (
+                  <span className="absolute -top-2.5 left-6 chip chip-accent">Most popular</span>
+                )}
+                <div className="text-[13px] font-medium text-muted mb-1">{p.name}</div>
+                <div className="text-[13px] text-muted mb-5">{p.tagline}</div>
+
+                <div className="flex items-baseline gap-1.5 mb-1">
+                  <div className="text-[40px] md:text-[44px] font-[560] tracking-tight3 leading-none">
+                    {isFree ? "Free" : formatPrice(price, currency)}
+                  </div>
+                  {!isFree && <div className="text-[13px] text-muted">/ month</div>}
+                </div>
+                <div className="text-[12.5px] text-muted mb-6">{p.limitLabel}</div>
+
+                <ul className="flex flex-col gap-2 mb-6">
+                  {p.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-[13px]">
+                      <Icons.Check size={14} className="text-accent flex-shrink-0 mt-0.5" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="flex-1" />
+
+                {isFree ? (
+                  <Link href="/signup" className="btn btn-lg justify-center">Start free</Link>
+                ) : (
+                  <a
+                    href="mailto:prodlyft@gmail.com?subject=Prodlyft%20upgrade"
+                    className={p.highlight ? "btn-primary btn-lg justify-center" : "btn btn-lg justify-center"}
+                  >
+                    {p.ctaLabel} <Icons.ArrowRight size={14} />
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-10 text-center text-[12.5px] text-muted">
+          Paid plans billed monthly. To upgrade, email{" "}
+          <a className="text-ink font-medium hover:underline" href="mailto:prodlyft@gmail.com">prodlyft@gmail.com</a>{" "}
+          — we'll activate your account within an hour.
+        </div>
+
+        <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
+          {[
+            { q: "What counts as a product?", a: "Every product row we save from your extracts — whether from a Shopify /products.json, a WooCommerce store API, or a single product page scraped by the AI." },
+            { q: "How does the 30-day Pro cycle work?", a: "It's a rolling window — each period starts when you first use it and resets 30 days later. You get a fresh 10,000 products each time." },
+            { q: "Can I cancel or downgrade?", a: "Yes. Email us and we'll downgrade at the end of your current period so you keep what you paid for." },
+          ].map((x) => (
+            <div key={x.q} className="card p-5">
+              <div className="text-[14px] font-[560] mb-1.5">{x.q}</div>
+              <div className="text-[13px] text-muted leading-[1.55]">{x.a}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="h-20" />
+    </div>
+  );
+}

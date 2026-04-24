@@ -8,13 +8,13 @@ export async function GET() {
   const check = await requireAdmin();
   if (!check.ok) return check.res;
 
-  // Note: users.id (int) vs crawls user_id — crawls don't have user_id yet,
-  // so crawl_count is always 0 for now. Leaving the join pattern ready.
   const r = await pool.query(
-    `SELECT id, email, name, is_admin, created_at,
-            0::int AS crawl_count
-     FROM users
-     ORDER BY created_at DESC`,
+    `SELECT u.id, u.email, u.name, u.is_admin, u.created_at,
+            u.plan, u.plan_period_start,
+            u.products_used_in_period, u.products_used_total,
+            (SELECT COUNT(*)::int FROM crawls c WHERE c.user_id = u.id) AS crawl_count
+     FROM users u
+     ORDER BY u.created_at DESC`,
   );
   return NextResponse.json(r.rows);
 }

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { findUserById, quotaRemaining } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 /**
- * POST /api/crawl — auth-gated proxy that injects user_id from the session
- * before forwarding to the Railway backend.
+ * POST /api/crawl — auth-gated proxy. Injects user_id and pre-checks plan
+ * quota so free / out-of-quota users get a fast 402 before we spin up the
+ * worker. The backend re-enforces caps as defence in depth.
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -23,6 +25,31 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  // Plan gate.
+  const user = await findUserById(userId);
+  if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+  const remaining = quotaRemaining(user);
+  if (remaining !== null && remaining <= 0) {
+    const plan = (user.plan || "free").toLowerCase();
+    const msg =
+      plan === "free"
+        ? "You've used all 5 products on the free trial. Upgrade to continue."
+        : "You've hit your 10,000-product monthly cap. Upgrade to Unlimited or wait for your next cycle.";
+    return NextResponse.json(
+      { error: msg, code: "quota_exceeded", plan, remaining: 0 },
+      { status: 402 },
+    );
+  }
+
+  // Clamp the requested max down to what's left. The worker will enforce again.
+  const requested = typeof body.max_products === "number" ? body.max_products : null;
+  let effective = requested;
+  if (remaining !== null) {
+    effective = requested == null ? remaining : Math.min(requested, remaining);
+  }
+  body.max_products = effective;
   body.user_id = userId;
 
   const apiUrl = process.env.API_URL ?? "http://localhost:8000";

@@ -68,7 +68,7 @@ export function LandingHeader() {
             </div>
           )}
         </div>
-        <Link href="#pricing" className="hover:text-ink transition-colors">Pricing</Link>
+        <Link href="/pricing" className="hover:text-ink transition-colors">Pricing</Link>
         <Link href="#docs" className="hover:text-ink transition-colors">Docs</Link>
         <Link href="#changelog" className="hover:text-ink transition-colors">Changelog</Link>
       </nav>
@@ -153,7 +153,7 @@ export function LandingHeader() {
               </Link>
             ))}
             <div className="my-3 border-t border-line-2" />
-            <Link href="#pricing" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Pricing</Link>
+            <Link href="/pricing" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Pricing</Link>
             <Link href="#docs" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Docs</Link>
             <Link href="#changelog" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Changelog</Link>
           </div>

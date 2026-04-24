@@ -25,9 +25,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           image: user.image,
-          // Extra claim we'll propagate into the JWT/session.
           is_admin: user.is_admin,
-        } as unknown as { id: string; email: string; name: string | null; image: string | null; is_admin: boolean };
+          plan: user.plan || "free",
+        } as unknown as {
+          id: string;
+          email: string;
+          name: string | null;
+          image: string | null;
+          is_admin: boolean;
+          plan: string;
+        };
       },
     }),
   ],
