@@ -14,13 +14,24 @@ export default function Landing() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Advanced options
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [maxProducts, setMaxProducts] = useState<string>("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
+
+  const hasOptions = (maxProducts.trim() !== "" && Number(maxProducts) > 0) || categoryFilter.trim() !== "";
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!url.trim()) return;
     setSubmitting(true);
     try {
-      const { crawl_id } = await createCrawl(url.trim(), "auto");
+      const max = maxProducts.trim() === "" ? null : Math.max(1, Math.floor(Number(maxProducts)));
+      const { crawl_id } = await createCrawl(url.trim(), "auto", {
+        max_products: Number.isFinite(max as number) ? (max as number) : null,
+        category_filter: categoryFilter.trim() || null,
+      });
       router.push(`/crawls/${crawl_id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -71,8 +82,81 @@ export default function Landing() {
             {submitting ? "Queuing…" : <>Extract <Icons.ArrowRight size={14} /></>}
           </button>
         </form>
+
+        {/* Advanced options toggle */}
+        <div className="max-w-[640px] mx-auto mt-3">
+          <button
+            type="button"
+            onClick={() => setOptionsOpen((o) => !o)}
+            className="inline-flex items-center gap-1.5 text-[12px] text-muted hover:text-ink transition-colors"
+          >
+            <Icons.Settings size={12} />
+            Advanced options
+            {hasOptions && !optionsOpen && <span className="chip chip-accent text-[10px]">active</span>}
+            <Icons.ChevronDown
+              size={12}
+              style={{ transform: optionsOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 150ms" }}
+            />
+          </button>
+
+          {optionsOpen && (
+            <div className="mt-3 bg-white border border-line rounded-xl p-4 md:p-5 text-left">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Max products</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    placeholder="All"
+                    className="input"
+                    value={maxProducts}
+                    onChange={(e) => setMaxProducts(e.target.value)}
+                  />
+                  <div className="text-[11.5px] text-muted-2 mt-1.5 leading-[1.45]">
+                    Cap the number of products returned. Leave empty to pull the full catalog.
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Only categories containing</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. shoes, apparel, electronics"
+                    className="input"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                  />
+                  <div className="text-[11.5px] text-muted-2 mt-1.5 leading-[1.45]">
+                    Case-insensitive keyword matched against each product's categories and tags. Leave empty for all.
+                  </div>
+                </div>
+              </div>
+
+              {hasOptions && (
+                <div className="mt-4 pt-4 border-t border-line-2 flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
+                  <span>Will apply:</span>
+                  {maxProducts.trim() !== "" && Number(maxProducts) > 0 && (
+                    <span className="chip">max {Number(maxProducts).toLocaleString()}</span>
+                  )}
+                  {categoryFilter.trim() !== "" && (
+                    <span className="chip">category ~ "{categoryFilter.trim()}"</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setMaxProducts(""); setCategoryFilter(""); }}
+                    className="ml-auto text-muted-2 hover:text-ink underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {error && <div className="mt-3 text-[12px] text-danger">{error}</div>}
-        <div className="mt-3.5 text-[12px] text-muted-2 flex items-center justify-center gap-2 md:gap-4 flex-wrap">
+        <div className="mt-4 text-[12px] text-muted-2 flex items-center justify-center gap-2 md:gap-4 flex-wrap">
           <span className="flex items-center gap-1.5"><span className="dot text-accent" /> Public catalogs only — no login required</span>
           <span className="hidden sm:inline">·</span>
           <span>CSV export for Shopify & WooCommerce</span>
@@ -82,7 +166,7 @@ export default function Landing() {
         <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
           {[
             { n: "01", t: "Paste the store URL", d: "Works on any Shopify or WooCommerce storefront. A single product URL works too — Prodlyft auto-detects what you pasted." },
-            { n: "02", t: "We pull the full catalog", d: "Titles, prices, variants, images, SKUs, categories. No API keys, no setup." },
+            { n: "02", t: "We pull the full catalog", d: "Titles, prices, variants, images, SKUs, categories. Optional filters for max products and category keyword." },
             { n: "03", t: "Download import-ready CSV", d: "Shopify CSV and WooCommerce CSV both supported. Upload straight into the other platform." },
           ].map((s) => (
             <div key={s.n} className="card p-5">

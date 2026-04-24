@@ -25,6 +25,10 @@ class Crawl(Base):
     progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     total: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Scrape options set by the user at submit time.
+    max_products: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    category_filter: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -42,6 +46,8 @@ class Crawl(Base):
             "error": self.error,
             "progress": self.progress,
             "total": self.total,
+            "max_products": self.max_products,
+            "category_filter": self.category_filter,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -39,11 +39,20 @@ export interface Crawl {
 
 const base = "/api";
 
-export async function createCrawl(url: string, platform: Platform = "auto"): Promise<{ crawl_id: string; platform: string; mode: CrawlMode }> {
+export interface CrawlOptions {
+  max_products?: number | null;
+  category_filter?: string | null;
+}
+
+export async function createCrawl(
+  url: string,
+  platform: Platform = "auto",
+  options: CrawlOptions = {},
+): Promise<{ crawl_id: string; platform: string; mode: CrawlMode }> {
   const r = await fetch(`${base}/crawl`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, platform }),
+    body: JSON.stringify({ url, platform, ...options }),
   });
   if (!r.ok) throw new Error(`Crawl failed: ${r.status} ${await r.text()}`);
   return r.json();

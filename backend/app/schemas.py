@@ -11,6 +11,8 @@ CrawlMode = Literal["catalog", "single"]
 class CrawlCreateRequest(BaseModel):
     url: HttpUrl
     platform: Platform = "auto"
+    max_products: int | None = None
+    category_filter: str | None = None
 
 
 class CrawlCreateResponse(BaseModel):

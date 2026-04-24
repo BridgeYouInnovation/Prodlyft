@@ -43,6 +43,12 @@ def create_crawl(body: CrawlCreateRequest):
     url = str(body.url)
     platform = body.platform
     mode = "single" if platform == "other" else "catalog"
+
+    max_products = body.max_products
+    if max_products is not None and max_products <= 0:
+        max_products = None
+    category_filter = (body.category_filter or "").strip() or None
+
     with SessionLocal() as s:
         c = Crawl(
             url=url,
@@ -50,6 +56,8 @@ def create_crawl(body: CrawlCreateRequest):
             mode=mode,
             status="pending",
             progress={"step": "queued"},
+            max_products=max_products,
+            category_filter=category_filter,
         )
         s.add(c)
         s.commit()

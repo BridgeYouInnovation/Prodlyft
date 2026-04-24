@@ -73,6 +73,12 @@ export default function CrawlDetail() {
               <h1 className="text-[20px] md:text-[22px]">Extract</h1>
               <span className="chip">{crawl?.platform ?? "…"}</span>
               {crawl?.mode && <span className="chip">{crawl.mode}</span>}
+              {crawl && (crawl as { max_products?: number | null }).max_products && (
+                <span className="chip">max {(crawl as { max_products?: number | null }).max_products!.toLocaleString()}</span>
+              )}
+              {crawl && (crawl as { category_filter?: string | null }).category_filter && (
+                <span className="chip">category ~ &ldquo;{(crawl as { category_filter?: string | null }).category_filter}&rdquo;</span>
+              )}
             </div>
             <div className="font-mono text-[11.5px] text-muted break-all">{crawl?.url}</div>
           </div>
