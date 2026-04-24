@@ -94,7 +94,34 @@ class Product(Base):
 
     crawl: Mapped["Crawl"] = relationship("Crawl", back_populates="products")
 
+
+class ScrapeConfig(Base):
+    """AI-generated scraping recipe for a domain that wasn't matched by
+    rule-based platform detection. Cached so we only pay for Claude once
+    per unique domain."""
+
+    __tablename__ = "scrape_configs"
+
+    domain: Mapped[str] = mapped_column(String(255), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(50), default="custom")
+    config: Mapped[dict] = mapped_column(JSON, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
     def to_dict(self) -> dict:
+        return {
+            "domain": self.domain,
+            "platform": self.platform,
+            "config": self.config,
+            "hit_count": self.hit_count,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def to_dict(self) -> dict:  # noqa: D401 — Product.to_dict
         return {
             "id": self.id,
             "crawl_id": self.crawl_id,

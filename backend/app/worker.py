@@ -7,8 +7,13 @@ from datetime import datetime
 from .db import SessionLocal
 from .models import Crawl, Product
 from .platforms import detect_platform, fetch_shopify_catalog, fetch_woocommerce_catalog
-from .scraper import scrape_url
+from .scraper import fetch_html, extract_heuristic
 from .ai import clean_product
+from .ai_scraper import (
+    domain_of,
+    get_or_generate_config,
+    extract_with_config,
+)
 
 
 # Safety cap — the most products we'll ever fetch from a single storefront in
@@ -96,9 +101,31 @@ def process_crawl(crawl_id: str) -> None:
                 _update(crawl_id, progress={"step": "fetching", "done": done, "total": total})
             products = fetch_woocommerce_catalog(url, on_progress=progress, max_products=fetch_cap)
         else:
-            # Single product (mode=single OR catalog fallback for "other")
+            # Single product — rule-based heuristics first, AI-guided config
+            # as a fallback when heuristics don't find a title or price.
             _update(crawl_id, progress={"step": "fetching"})
-            raw = scrape_url(url, on_progress=lambda s, m: _update(crawl_id, progress={"step": s, **(m or {})}))
+            html = fetch_html(url)
+            _update(crawl_id, progress={"step": "parsing"})
+            raw = extract_heuristic(html, url)
+
+            if not raw.get("title") or raw.get("price") is None:
+                _update(crawl_id, progress={"step": "config"})
+                cfg, from_cache = get_or_generate_config(url, html)
+                if cfg:
+                    _update(
+                        crawl_id,
+                        progress={
+                            "step": "extracting",
+                            "domain": domain_of(url),
+                            "from_cache": from_cache,
+                        },
+                    )
+                    ai_raw = extract_with_config(html, cfg, url)
+                    # Merge: AI fills in only the fields the heuristic missed.
+                    for k, v in ai_raw.items():
+                        if v and not raw.get(k):
+                            raw[k] = v
+
             _update(crawl_id, progress={"step": "cleaning"})
             cleaned = clean_product(raw)
             products = [cleaned]

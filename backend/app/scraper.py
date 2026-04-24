@@ -199,18 +199,9 @@ def _from_html(soup: BeautifulSoup, base_url: str) -> dict[str, Any]:
     return out
 
 
-def scrape_url(url: str, on_progress=None) -> dict[str, Any]:
-    """Run Playwright, fetch page, extract product data. `on_progress(step, meta)` optional."""
+def fetch_html(url: str) -> str:
+    """Render `url` headlessly and return the fully-loaded HTML string."""
     settings = get_settings()
-
-    def emit(step: str, **meta):
-        if on_progress:
-            try:
-                on_progress(step, meta)
-            except Exception:
-                pass
-
-    emit("fetching")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         try:
@@ -225,11 +216,15 @@ def scrape_url(url: str, on_progress=None) -> dict[str, Any]:
                 page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 pass
-            html = page.content()
+            return page.content()
         finally:
             browser.close()
 
-    emit("parsing")
+
+def extract_heuristic(html: str, url: str) -> dict[str, Any]:
+    """Extract product data from HTML using JSON-LD + generic HTML heuristics.
+    Always returns the canonical shape; fields it can't find are left as None /
+    empty so a secondary extractor (AI-config) can fill the gaps."""
     soup = BeautifulSoup(html, "lxml")
 
     data: dict[str, Any] = {}
@@ -238,7 +233,6 @@ def scrape_url(url: str, on_progress=None) -> dict[str, Any]:
             if v and not data.get(k):
                 data[k] = v
 
-    emit("extracting")
     for k, v in _from_html(soup, url).items():
         if v and not data.get(k):
             data[k] = v
@@ -252,5 +246,23 @@ def scrape_url(url: str, on_progress=None) -> dict[str, Any]:
     data.setdefault("categories", [])
     data.setdefault("in_stock", None)
     data["source_url"] = url
+    return data
 
+
+def scrape_url(url: str, on_progress=None) -> dict[str, Any]:
+    """Legacy one-shot: fetch + extract heuristically. Used by worker only when
+    the AI-config path is disabled. `on_progress(step, meta)` optional."""
+
+    def emit(step: str, **meta):
+        if on_progress:
+            try:
+                on_progress(step, meta)
+            except Exception:
+                pass
+
+    emit("fetching")
+    html = fetch_html(url)
+    emit("parsing")
+    data = extract_heuristic(html, url)
+    emit("extracting")
     return data

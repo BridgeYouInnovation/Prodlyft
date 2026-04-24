@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str = ""
     openrouter_model: str = "google/gemini-2.5-flash"
+    # Smarter (more expensive) model used only for HTML → config inference
+    # when a site isn't recognised by rule-based detection. Cached per
+    # domain so cost stays linear in unique domains, not requests.
+    openrouter_scraper_model: str = "anthropic/claude-sonnet-4.5"
 
     cors_origins: str = "http://localhost:3000"
 
