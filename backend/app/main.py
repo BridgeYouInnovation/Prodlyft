@@ -58,6 +58,7 @@ def create_crawl(body: CrawlCreateRequest):
             progress={"step": "queued"},
             max_products=max_products,
             category_filter=category_filter,
+            user_id=body.user_id,
         )
         s.add(c)
         s.commit()
@@ -79,15 +80,13 @@ def get_crawl(crawl_id: str, include_products: bool = Query(True)):
 
 
 @app.get("/crawls", response_model=list[CrawlOut])
-def list_crawls(limit: int = 20):
+def list_crawls(limit: int = 20, user_id: int | None = None):
     limit = max(1, min(limit, 100))
     with SessionLocal() as s:
-        rows = (
-            s.query(Crawl)
-            .order_by(Crawl.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        q = s.query(Crawl)
+        if user_id is not None:
+            q = q.filter(Crawl.user_id == user_id)
+        rows = q.order_by(Crawl.created_at.desc()).limit(limit).all()
         return [CrawlOut(**r.to_dict(include_products=False)) for r in rows]
 
 

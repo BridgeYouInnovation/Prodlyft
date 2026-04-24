@@ -4,34 +4,24 @@ import { auth } from "@/auth";
 export const runtime = "nodejs";
 
 /**
- * POST /api/crawl — auth-gated proxy that injects user_id from the session
- * before forwarding to the Railway backend.
+ * GET /api/crawls — returns crawls owned by the signed-in user only.
+ * Forwards to the Railway backend with ?user_id=<session.user.id>.
  */
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const session = await auth();
   const userId = Number((session?.user as { id?: string | number } | undefined)?.id);
   if (!session?.user || !Number.isFinite(userId)) {
-    return NextResponse.json(
-      { error: "Sign in required to start an extract." },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
 
-  let body: Record<string, unknown> = {};
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-  body.user_id = userId;
-
+  const limit = Number(req.nextUrl.searchParams.get("limit") ?? 20);
   const apiUrl = process.env.API_URL ?? "http://localhost:8000";
+
   try {
-    const upstream = await fetch(`${apiUrl}/crawl`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const upstream = await fetch(
+      `${apiUrl}/crawls?limit=${encodeURIComponent(String(limit))}&user_id=${userId}`,
+      { cache: "no-store" },
+    );
     const text = await upstream.text();
     return new NextResponse(text, {
       status: upstream.status,

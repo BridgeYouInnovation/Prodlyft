@@ -29,6 +29,10 @@ class Crawl(Base):
     max_products: Mapped[int | None] = mapped_column(Integer, nullable=True)
     category_filter: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Owner of this crawl. NULL for legacy/orphan rows from before auth
+    # was required; new crawls always carry the authenticated user's id.
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -48,6 +52,7 @@ class Crawl(Base):
             "total": self.total,
             "max_products": self.max_products,
             "category_filter": self.category_filter,
+            "user_id": self.user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

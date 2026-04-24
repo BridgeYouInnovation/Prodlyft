@@ -13,6 +13,10 @@ class CrawlCreateRequest(BaseModel):
     platform: Platform = "auto"
     max_products: int | None = None
     category_filter: str | None = None
+    # Populated by the Next.js proxy from the signed-in session. Anonymous
+    # submits are blocked at the proxy layer, so this should always be set
+    # in practice — but we keep it nullable for back-compat.
+    user_id: int | None = None
 
 
 class CrawlCreateResponse(BaseModel):
