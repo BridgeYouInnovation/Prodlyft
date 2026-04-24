@@ -1,16 +1,85 @@
+"use client";
 import Link from "next/link";
-import { headers } from "next/headers";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LandingHeader } from "@/components/LandingHeader";
 import { Icons } from "@/components/Icons";
-import { PLANS, currencyFromCountry, formatPrice } from "@/lib/plans";
+import {
+  PLANS,
+  COUNTRY_OPTIONS,
+  currencyFromCountry,
+  formatPrice,
+  type Currency,
+} from "@/lib/plans";
 
-export const dynamic = "force-dynamic";
+const PREF_KEY = "prodlyft_country";
 
-export default async function PricingPage() {
-  // Vercel sets x-vercel-ip-country on every request hitting our edge.
-  const h = await headers();
-  const country = h.get("x-vercel-ip-country");
-  const currency = currencyFromCountry(country);
+export default function PricingPage() {
+  const [country, setCountry] = useState<string | null>(null);
+  const [detected, setDetected] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the country menu on outside click.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, []);
+
+  // Initial resolution:
+  //   1. Saved preference in localStorage (user-chosen)
+  //   2. Server-detected country from Vercel geo header
+  //   3. Fallback: "WW" (International / USD)
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem(PREF_KEY) : null;
+    if (saved) {
+      setCountry(saved);
+      return;
+    }
+    fetch("/api/geo")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const c = (d?.country as string | null) || "WW";
+        // Narrow to one of our known options; else "WW"
+        const known = COUNTRY_OPTIONS.find((o) => o.code === c);
+        const resolved = known ? known.code : "WW";
+        setDetected(resolved);
+        setCountry(resolved);
+      })
+      .catch(() => {
+        setDetected("WW");
+        setCountry("WW");
+      });
+  }, []);
+
+  const currency: Currency = useMemo(() => {
+    if (!country) return "USD";
+    const opt = COUNTRY_OPTIONS.find((o) => o.code === country);
+    return opt?.currency ?? currencyFromCountry(country);
+  }, [country]);
+
+  const selected = COUNTRY_OPTIONS.find((o) => o.code === country) ?? COUNTRY_OPTIONS[COUNTRY_OPTIONS.length - 1];
+  const isUserOverride = detected !== null && country !== null && country !== detected;
+
+  function choose(code: string) {
+    setCountry(code);
+    try {
+      localStorage.setItem(PREF_KEY, code);
+    } catch {
+      /* ignore */
+    }
+    setMenuOpen(false);
+  }
+
+  function resetToDetected() {
+    try {
+      localStorage.removeItem(PREF_KEY);
+    } catch { /* ignore */ }
+    setCountry(detected);
+    setMenuOpen(false);
+  }
 
   return (
     <div className="min-h-screen bg-bg">
@@ -21,17 +90,65 @@ export default async function PricingPage() {
           <div className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 bg-white border border-line rounded-full text-[11.5px] text-ink-2 mb-5">
             <span className="chip chip-accent h-[18px]">Pricing</span>
             Prices shown in{" "}
-            <span className="font-mono font-medium">
-              {currency === "XAF" ? "XAF (Cameroon)" : currency === "NGN" ? "NGN (Nigeria)" : "USD"}
-            </span>
+            <span className="font-mono font-medium">{currency}</span>
           </div>
           <h1 className="text-[32px] sm:text-[44px] md:text-[52px] font-[560] leading-[1.05] tracking-tight3 mb-3 md:mb-4">
             Simple pricing.<br className="hidden sm:inline" />
             <span className="text-muted"> Scale as you grow.</span>
           </h1>
-          <p className="text-[14px] md:text-[16px] text-muted max-w-[520px] mx-auto leading-[1.55]">
+          <p className="text-[14px] md:text-[16px] text-muted max-w-[520px] mx-auto leading-[1.55] mb-5">
             Start free, upgrade when you need more. Cancel any time.
           </p>
+
+          {/* Country / currency selector */}
+          <div className="inline-flex items-center gap-2 text-[12.5px]">
+            <span className="text-muted">Showing prices for</span>
+            <div ref={menuRef} className="relative">
+              <button
+                onClick={() => setMenuOpen((o) => !o)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-line rounded-md hover:border-ink transition-colors"
+              >
+                <Icons.Globe size={12} />
+                <span className="font-medium text-ink">{selected.name}</span>
+                <span className="text-muted-2 font-mono text-[11px]">· {selected.currency}</span>
+                <Icons.ChevronDown size={11} className="text-muted-2" />
+              </button>
+              {menuOpen && (
+                <div
+                  className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-[240px] bg-white border border-line rounded-lg p-1.5 z-50 text-left"
+                  style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
+                >
+                  {COUNTRY_OPTIONS.map((c) => {
+                    const isActive = c.code === country;
+                    const isDetected = c.code === detected;
+                    return (
+                      <button
+                        key={c.code}
+                        onClick={() => choose(c.code)}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-line-2 text-[13px]"
+                        style={{ background: isActive ? "var(--line-2)" : undefined }}
+                      >
+                        <span className="flex-1 text-ink">{c.name}</span>
+                        <span className="font-mono text-[11px] text-muted">{c.currency}</span>
+                        {isDetected && <span className="chip chip-accent text-[9px]">detected</span>}
+                      </button>
+                    );
+                  })}
+                  {isUserOverride && (
+                    <>
+                      <div className="my-1 border-t border-line-2" />
+                      <button
+                        onClick={resetToDetected}
+                        className="w-full text-left px-2.5 py-2 rounded-md text-[12px] text-muted hover:bg-line-2"
+                      >
+                        Reset to detected ({detected})
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
@@ -76,7 +193,7 @@ export default async function PricingPage() {
                   <Link href="/signup" className="btn btn-lg justify-center">Start free</Link>
                 ) : (
                   <a
-                    href="mailto:prodlyft@gmail.com?subject=Prodlyft%20upgrade"
+                    href={`mailto:prodlyft@gmail.com?subject=Prodlyft%20${encodeURIComponent(p.name)}%20upgrade&body=${encodeURIComponent(`Country: ${selected.name} (${selected.code})\nCurrency: ${currency}\n\nPlease activate ${p.name} for my account.`)}`}
                     className={p.highlight ? "btn-primary btn-lg justify-center" : "btn btn-lg justify-center"}
                   >
                     {p.ctaLabel} <Icons.ArrowRight size={14} />

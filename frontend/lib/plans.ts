@@ -15,6 +15,27 @@ export function currencyFromCountry(country: string | null | undefined): Currenc
   return "USD";
 }
 
+export interface CountryOption {
+  code: string;          // ISO-2 code
+  name: string;          // Display label
+  currency: Currency;    // Currency we'll show prices in
+}
+
+// Countries/regions we explicitly support in the selector. Everything else
+// falls back to "International" (USD). Order matters — shows the way you'd
+// expect a user in Cameroon / Nigeria to see first.
+export const COUNTRY_OPTIONS: CountryOption[] = [
+  { code: "CM", name: "Cameroon",       currency: "XAF" },
+  { code: "NG", name: "Nigeria",        currency: "NGN" },
+  { code: "US", name: "United States",  currency: "USD" },
+  { code: "GB", name: "United Kingdom", currency: "USD" },
+  { code: "CA", name: "Canada",         currency: "USD" },
+  { code: "ZA", name: "South Africa",   currency: "USD" },
+  { code: "KE", name: "Kenya",          currency: "USD" },
+  { code: "GH", name: "Ghana",          currency: "USD" },
+  { code: "WW", name: "International",  currency: "USD" },
+];
+
 export interface PricePoint {
   /** integer amount in the smallest conventional unit for display (XAF/NGN are whole units, USD dollars). */
   amount: number;
