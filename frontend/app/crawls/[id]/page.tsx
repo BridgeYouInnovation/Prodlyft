@@ -16,6 +16,8 @@ function fmtPrice(p: number | null, currency = "USD") {
   }
 }
 
+const PAGE_SIZE = 20;
+
 export default function CrawlDetail() {
   const params = useParams<{ id: string }>();
   const pathname = usePathname();
@@ -24,6 +26,7 @@ export default function CrawlDetail() {
   const [crawl, setCrawl] = useState<Crawl | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
   const signedIn = authStatus === "authenticated" && !!session?.user;
 
   useEffect(() => {
@@ -54,6 +57,18 @@ export default function CrawlDetail() {
       (p.brand || "").toLowerCase().includes(needle)
     );
   }, [crawl, q]);
+
+  // Reset to the first page whenever the search query changes.
+  useEffect(() => { setPage(1); }, [q]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Clamp in case filter shrinks past the current page.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const start = (page - 1) * PAGE_SIZE;
+  const pageRows = filtered.slice(start, start + PAGE_SIZE);
 
   const isProcessing = crawl && (crawl.status === "pending" || crawl.status === "processing");
   const progress = crawl?.progress;
@@ -202,7 +217,7 @@ export default function CrawlDetail() {
                     {filtered.length === 0 && (
                       <tr><td colSpan={6} className="text-center text-muted py-10">No products matched.</td></tr>
                     )}
-                    {filtered.map((p) => (
+                    {pageRows.map((p) => (
                       <tr key={p.id}>
                         <td>
                           {p.images?.[0] ? (
@@ -235,6 +250,17 @@ export default function CrawlDetail() {
                   </tbody>
                 </table>
               </div>
+
+              {filtered.length > 0 && (
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  startIdx={start + 1}
+                  endIdx={Math.min(start + PAGE_SIZE, filtered.length)}
+                  total={filtered.length}
+                  onPage={setPage}
+                />
+              )}
             </div>
           </>
         )}
@@ -249,5 +275,92 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] md:text-[11.5px] text-muted mb-1 md:mb-1.5 truncate">{label}</div>
       <div className="text-[18px] md:text-2xl font-[560] tracking-tight2 capitalize truncate">{value}</div>
     </div>
+  );
+}
+
+function Pagination({
+  page,
+  totalPages,
+  startIdx,
+  endIdx,
+  total,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  startIdx: number;
+  endIdx: number;
+  total: number;
+  onPage: (p: number) => void;
+}) {
+  // Build a compact window of page numbers centered on `page`.
+  const windowSize = 5;
+  let from = Math.max(1, page - Math.floor(windowSize / 2));
+  const to = Math.min(totalPages, from + windowSize - 1);
+  from = Math.max(1, to - windowSize + 1);
+  const nums: number[] = [];
+  for (let i = from; i <= to; i++) nums.push(i);
+
+  return (
+    <div className="border-t border-line-2 px-3 md:px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="text-[12px] text-muted">
+        Showing <span className="font-medium text-ink">{startIdx}</span>–<span className="font-medium text-ink">{endIdx}</span>{" "}
+        of <span className="font-medium text-ink">{total}</span>
+      </div>
+      <div className="flex-1" />
+      <div className="flex items-center gap-1 flex-wrap">
+        <button
+          onClick={() => onPage(page - 1)}
+          disabled={page <= 1}
+          className="btn btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Icons.ChevronLeft size={12} />
+          <span className="hidden sm:inline">Prev</span>
+        </button>
+
+        {from > 1 && (
+          <>
+            <PageBtn n={1} active={1 === page} onClick={onPage} />
+            {from > 2 && <span className="px-1 text-muted-2 text-[12px]">…</span>}
+          </>
+        )}
+
+        {nums.map((n) => (
+          <PageBtn key={n} n={n} active={n === page} onClick={onPage} />
+        ))}
+
+        {to < totalPages && (
+          <>
+            {to < totalPages - 1 && <span className="px-1 text-muted-2 text-[12px]">…</span>}
+            <PageBtn n={totalPages} active={totalPages === page} onClick={onPage} />
+          </>
+        )}
+
+        <button
+          onClick={() => onPage(page + 1)}
+          disabled={page >= totalPages}
+          className="btn btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <span className="hidden sm:inline">Next</span>
+          <Icons.Chevron size={12} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PageBtn({ n, active, onClick }: { n: number; active: boolean; onClick: (p: number) => void }) {
+  return (
+    <button
+      onClick={() => onClick(n)}
+      className={`min-w-[28px] h-[26px] px-1.5 rounded-md text-[12px] font-medium transition-colors ${
+        active
+          ? "bg-ink text-bg"
+          : "text-muted hover:bg-line-2 hover:text-ink"
+      }`}
+      aria-current={active ? "page" : undefined}
+    >
+      {n}
+    </button>
   );
 }

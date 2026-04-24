@@ -32,6 +32,7 @@ export const Icons = {
   Check: (p: IconProps) => (<I {...p}><path d="m5 12 5 5L20 7"/></I>),
   X: (p: IconProps) => (<I {...p}><path d="M6 6l12 12"/><path d="m18 6-12 12"/></I>),
   Chevron: (p: IconProps) => (<I {...p}><path d="m9 6 6 6-6 6"/></I>),
+  ChevronLeft: (p: IconProps) => (<I {...p}><path d="m15 6-6 6 6 6"/></I>),
   ChevronDown: (p: IconProps) => (<I {...p}><path d="m6 9 6 6 6-6"/></I>),
   Link: (p: IconProps) => (<I {...p}><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></I>),
   Dots: (p: IconProps) => (<I {...p}><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></I>),
