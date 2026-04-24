@@ -62,7 +62,7 @@ export default function CrawlDetail() {
   const pct = total ? Math.min(100, Math.round((done / total) * 100)) : null;
 
   return (
-    <Shell active="imports" crumbs={["Acme Co.", "Extracts", id.slice(0, 8)]}>
+    <Shell active="extracts" crumbs={["Extracts", id.slice(0, 8)]}>
       <div className="flex-1 overflow-auto px-4 md:px-8 py-5 md:py-7">
         {err && <div className="text-[12px] text-danger mb-3">{err}</div>}
 

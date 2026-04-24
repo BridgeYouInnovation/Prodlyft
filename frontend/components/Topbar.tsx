@@ -27,9 +27,10 @@ export function Topbar({
 
   const last = crumbs[crumbs.length - 1];
   const initials = (session?.user?.email || "?").slice(0, 1).toUpperCase();
+  const isAdmin = (session?.user as { is_admin?: boolean } | undefined)?.is_admin;
 
   return (
-    <div className="topbar px-3 md:px-5 gap-1 md:gap-0">
+    <div className="topbar px-3 md:px-5 gap-1 md:gap-2">
       {onMenuClick && (
         <button
           onClick={onMenuClick}
@@ -40,10 +41,8 @@ export function Topbar({
         </button>
       )}
 
-      {/* Mobile: last crumb only */}
       <div className="md:hidden text-[13px] font-medium text-ink truncate min-w-0">{last}</div>
 
-      {/* Desktop: full breadcrumb */}
       <div className="hidden md:flex items-center gap-2 text-[13px] min-w-0">
         {crumbs.map((c, i) => (
           <span key={i} className="flex items-center gap-2">
@@ -55,69 +54,57 @@ export function Topbar({
 
       <div className="flex-1" />
 
-      <div className="hidden lg:flex items-center gap-2 px-2.5 h-[30px] bg-white border border-line rounded-md text-[12.5px] text-muted w-[260px]">
-        <Icons.Search size={13} />
-        <span>Search products, imports...</span>
-        <div className="flex-1" />
-        <kbd className="kbd">⌘K</kbd>
-      </div>
-      <div className="w-3 hidden lg:block" />
-
       {right ?? (
-        <>
-          <button className="btn-ghost btn-icon">
-            <Icons.Bell size={15} />
+        <div ref={ref} className="relative">
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            className="w-8 h-8 rounded-full flex-shrink-0 grid place-items-center text-white text-[12px] font-medium"
+            style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
+            aria-label="Account"
+          >
+            {session?.user ? initials : "?"}
           </button>
-          <div ref={ref} className="relative">
-            <button
-              onClick={() => setMenuOpen((o) => !o)}
-              className="w-7 h-7 rounded-full ml-1 flex-shrink-0 grid place-items-center text-white text-[11px] font-medium"
-              style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
-              aria-label="Account"
+          {menuOpen && session?.user && (
+            <div
+              className="absolute top-full right-0 mt-2 w-[220px] bg-white border border-line rounded-lg p-1.5 z-50"
+              style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
             >
-              {session?.user ? initials : null}
-            </button>
-            {menuOpen && session?.user && (
-              <div
-                className="absolute top-full right-0 mt-2 w-[220px] bg-white border border-line rounded-lg p-1.5 z-50"
-                style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
-              >
-                <div className="px-2.5 py-2 border-b border-line-2 mb-1">
-                  <div className="text-[11.5px] text-muted">Signed in as</div>
-                  <div className="text-[13px] font-medium text-ink truncate">{session.user.email}</div>
-                </div>
-                {(session.user as { is_admin?: boolean }).is_admin && (
-                  <Link
-                    href="/admin"
-                    className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2 font-medium"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      Admin <span className="chip chip-accent text-[10px]">admin</span>
-                    </span>
-                  </Link>
-                )}
-                <Link href="/dashboard" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>Dashboard</Link>
-                <Link href="/products" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>Extracts</Link>
-                <div className="my-1 border-t border-line-2" />
-                <button
-                  onClick={() => signOut({ redirectTo: "/" })}
-                  className="block w-full text-left px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2 text-danger"
+              <div className="px-2.5 py-2 border-b border-line-2 mb-1">
+                <div className="text-[11.5px] text-muted">Signed in as</div>
+                <div className="text-[13px] font-medium text-ink truncate">{session.user.email}</div>
+              </div>
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2 font-medium"
+                  onClick={() => setMenuOpen(false)}
                 >
-                  Sign out
-                </button>
-              </div>
-            )}
-            {menuOpen && !session?.user && (
-              <div
-                className="absolute top-full right-0 mt-2 w-[220px] bg-white border border-line rounded-lg p-3 z-50"
-                style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
+                  <span className="inline-flex items-center gap-1.5">
+                    Admin <span className="chip chip-accent text-[10px]">admin</span>
+                  </span>
+                </Link>
+              )}
+              <Link href="/dashboard" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>Dashboard</Link>
+              <Link href="/products" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>Extracts</Link>
+              <Link href="/" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setMenuOpen(false)}>New extract</Link>
+              <div className="my-1 border-t border-line-2" />
+              <button
+                onClick={() => signOut({ redirectTo: "/" })}
+                className="block w-full text-left px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2 text-danger"
               >
-                <Link href="/signin" className="btn-primary w-full justify-center">Sign in</Link>
-              </div>
-            )}
-          </div>
-        </>
+                Sign out
+              </button>
+            </div>
+          )}
+          {menuOpen && !session?.user && (
+            <div
+              className="absolute top-full right-0 mt-2 w-[220px] bg-white border border-line rounded-lg p-3 z-50"
+              style={{ boxShadow: "0 20px 48px -20px rgba(14,14,12,0.25)" }}
+            >
+              <Link href="/signin" className="btn-primary w-full justify-center">Sign in</Link>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

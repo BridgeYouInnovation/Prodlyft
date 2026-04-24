@@ -1,17 +1,15 @@
 "use client";
 import Link from "next/link";
 import { useEffect } from "react";
+import { useSession, signOut } from "next-auth/react";
 import { Icons } from "./Icons";
 import { BrandMark } from "./BrandMark";
 
-export type NavId = "dashboard" | "imports" | "products" | "automations" | "integrations" | "settings";
+export type NavId = "dashboard" | "extracts" | "admin";
 
-const items: { id: NavId; label: string; icon: keyof typeof Icons; href: string; badge?: string }[] = [
+const items: { id: NavId; label: string; icon: keyof typeof Icons; href: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: "Home", href: "/dashboard" },
-  { id: "imports", label: "Imports", icon: "Import", href: "/imports/new", badge: "12" },
-  { id: "products", label: "Products", icon: "Box", href: "/products" },
-  { id: "automations", label: "Automations", icon: "Bolt", href: "/automations" },
-  { id: "integrations", label: "Integrations", icon: "Plug", href: "/integrations" },
+  { id: "extracts", label: "Extracts", icon: "Box", href: "/products" },
 ];
 
 export function Sidebar({
@@ -23,6 +21,13 @@ export function Sidebar({
   open?: boolean;
   onClose?: () => void;
 }) {
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { is_admin?: boolean } | undefined)?.is_admin;
+  const email = session?.user?.email ?? "";
+  const name = session?.user?.name;
+  const display = name || email.split("@")[0] || "You";
+  const initials = (name || email || "?").slice(0, 1).toUpperCase();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose?.();
@@ -57,9 +62,6 @@ export function Sidebar({
           <BrandMark />
           <div className="font-semibold text-sm tracking-tight2">Prodlyft</div>
           <div className="flex-1" />
-          <div className="font-mono text-[10.5px] text-muted px-1.5 py-0.5 border border-line rounded bg-white hidden md:block">
-            ⌘K
-          </div>
           <button
             onClick={onClose}
             className="md:hidden btn-ghost btn-icon -mr-1"
@@ -69,15 +71,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="px-2 pb-2.5">
-          <div className="flex items-center gap-2 px-2 py-1.5 bg-white border border-line rounded-md text-[12px] text-ink-2 cursor-pointer">
-            <div className="w-4 h-4 rounded bg-ink text-bg grid place-items-center text-[9px] font-semibold">AC</div>
-            <span className="flex-1 truncate">Acme Co.</span>
-            <Icons.ChevronDown size={12} />
-          </div>
-        </div>
-
-        <nav className="flex flex-col gap-px">
+        <nav className="flex flex-col gap-px mt-1">
           {items.map((i) => {
             const Icon = Icons[i.icon];
             return (
@@ -89,48 +83,58 @@ export function Sidebar({
               >
                 <Icon size={14} />
                 <span className="flex-1">{i.label}</span>
-                {i.badge && <span className="text-[10.5px] text-muted font-mono">{i.badge}</span>}
               </Link>
             );
           })}
-        </nav>
-
-        <div className="nav-section">Workspace</div>
-        <nav className="flex flex-col gap-px">
           <Link
-            href="/settings"
-            className={`nav-item ${active === "settings" ? "active" : ""}`}
+            href="/"
+            className="nav-item"
             onClick={onClose}
           >
-            <Icons.Settings size={14} />
-            <span>Settings</span>
+            <Icons.Plus size={14} />
+            <span className="flex-1">New extract</span>
           </Link>
-          <div className="nav-item">
-            <Icons.Plug size={14} />
-            <span className="flex-1">Shopify</span>
-            <span className="dot text-accent" />
-          </div>
-          <div className="nav-item">
-            <div className="w-3.5 h-3.5 grid place-items-center">
-              <div className="w-2 h-2 rounded-sm" style={{ background: "#7F54B3" }} />
-            </div>
-            <span className="flex-1">WooCommerce</span>
-            <span className="dot text-accent" />
-          </div>
         </nav>
+
+        {isAdmin && (
+          <>
+            <div className="nav-section">Staff</div>
+            <Link
+              href="/admin"
+              className="nav-item"
+              onClick={onClose}
+            >
+              <Icons.Sparkle size={14} />
+              <span className="flex-1">Admin</span>
+              <span className="chip chip-accent text-[10px]">admin</span>
+            </Link>
+          </>
+        )}
 
         <div className="flex-1" />
 
-        <div className="border border-line bg-white rounded-lg p-2.5">
-          <div className="flex items-center gap-1.5 text-[11.5px] font-medium mb-1">
-            <Icons.Sparkle size={12} className="text-accent" />
-            Plan · Starter
+        {session?.user && (
+          <div className="border border-line bg-white rounded-lg p-2.5">
+            <div className="flex items-center gap-2 mb-2">
+              <div
+                className="w-6 h-6 rounded-full grid place-items-center text-white text-[11px] font-medium flex-shrink-0"
+                style={{ background: "linear-gradient(135deg, #A8B5A0, #6A7A6C)" }}
+              >
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12px] font-medium truncate">{display}</div>
+                <div className="text-[10.5px] text-muted truncate">{email}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => signOut({ redirectTo: "/" })}
+              className="w-full text-[11.5px] py-1.5 rounded-md border border-line hover:bg-line-2 transition-colors"
+            >
+              Sign out
+            </button>
           </div>
-          <div className="text-[11px] text-muted leading-snug">412 / 1,000 imports used this month</div>
-          <div className="h-[3px] bg-line-2 rounded-full mt-2 overflow-hidden">
-            <div className="h-full bg-ink" style={{ width: "41%" }} />
-          </div>
-        </div>
+        )}
       </aside>
     </>
   );

@@ -111,7 +111,6 @@ export function LandingHeader() {
               )}
               <Link href="/dashboard" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setUserMenuOpen(false)}>Dashboard</Link>
               <Link href="/products" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setUserMenuOpen(false)}>Extracts</Link>
-              <Link href="/integrations" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setUserMenuOpen(false)}>Integrations</Link>
               <div className="my-1 border-t border-line-2" />
               <button
                 onClick={() => signOut({ redirectTo: "/" })}
