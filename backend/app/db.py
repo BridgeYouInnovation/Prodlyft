@@ -69,6 +69,23 @@ ALTER TABLE crawls ADD COLUMN IF NOT EXISTS max_products INTEGER;
 ALTER TABLE crawls ADD COLUMN IF NOT EXISTS category_filter VARCHAR(255);
 ALTER TABLE crawls ADD COLUMN IF NOT EXISTS user_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_crawls_user_id ON crawls(user_id);
+
+-- My-CoolPay payments.
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  plan VARCHAR(20) NOT NULL,
+  amount NUMERIC(14, 2) NOT NULL,
+  currency VARCHAR(8) NOT NULL DEFAULT 'XAF',
+  app_transaction_ref TEXT UNIQUE NOT NULL,
+  mcp_transaction_ref TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'created',
+  payload JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 """
 
 

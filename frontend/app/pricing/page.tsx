@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { LandingHeader } from "@/components/LandingHeader";
 import { Icons } from "@/components/Icons";
 import {
@@ -12,12 +14,43 @@ import {
 } from "@/lib/plans";
 
 const PREF_KEY = "prodlyft_country";
+// My-CoolPay always charges in XAF — display currency is informational.
+const MCP_XAF: Record<"pro" | "unlimited", number> = { pro: 10_000, unlimited: 25_000 };
 
 export default function PricingPage() {
+  const router = useRouter();
+  const { status: authStatus } = useSession();
   const [country, setCountry] = useState<string | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [checkoutPending, setCheckoutPending] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  async function startCheckout(plan: "pro" | "unlimited") {
+    setCheckoutError(null);
+    if (authStatus !== "authenticated") {
+      router.push(`/signin?callbackUrl=${encodeURIComponent("/pricing")}`);
+      return;
+    }
+    setCheckoutPending(plan);
+    try {
+      const r = await fetch("/api/payment/paylink", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      const data = (await r.json()) as { payment_url?: string; error?: string };
+      if (!r.ok || !data.payment_url) {
+        throw new Error(data.error || `Checkout failed: ${r.status}`);
+      }
+      // Redirect the browser to My-CoolPay's hosted checkout.
+      window.location.href = data.payment_url;
+    } catch (e) {
+      setCheckoutError((e as Error).message);
+      setCheckoutPending(null);
+    }
+  }
 
   // Close the country menu on outside click.
   useEffect(() => {
@@ -192,22 +225,38 @@ export default function PricingPage() {
                 {isFree ? (
                   <Link href="/signup" className="btn btn-lg justify-center">Start free</Link>
                 ) : (
-                  <a
-                    href={`mailto:prodlyft@gmail.com?subject=Prodlyft%20${encodeURIComponent(p.name)}%20upgrade&body=${encodeURIComponent(`Country: ${selected.name} (${selected.code})\nCurrency: ${currency}\n\nPlease activate ${p.name} for my account.`)}`}
-                    className={p.highlight ? "btn-primary btn-lg justify-center" : "btn btn-lg justify-center"}
-                  >
-                    {p.ctaLabel} <Icons.ArrowRight size={14} />
-                  </a>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startCheckout(p.id as "pro" | "unlimited")}
+                      disabled={checkoutPending === p.id}
+                      className={p.highlight ? "btn-primary btn-lg justify-center" : "btn btn-lg justify-center"}
+                    >
+                      {checkoutPending === p.id ? "Redirecting…" : <>{p.ctaLabel} <Icons.ArrowRight size={14} /></>}
+                    </button>
+                    {currency !== "XAF" && (
+                      <div className="text-[11px] text-muted-2 text-center mt-2">
+                        Charged as {MCP_XAF[p.id as "pro" | "unlimited"].toLocaleString()} FCFA via My-CoolPay
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             );
           })}
         </div>
 
+        {checkoutError && (
+          <div className="mt-4 p-3 rounded-md text-[12.5px] max-w-[480px] mx-auto bg-warn-soft text-warn-ink text-center">
+            {checkoutError}
+          </div>
+        )}
+
         <div className="mt-10 text-center text-[12.5px] text-muted">
-          Paid plans billed monthly. To upgrade, email{" "}
-          <a className="text-ink font-medium hover:underline" href="mailto:prodlyft@gmail.com">prodlyft@gmail.com</a>{" "}
-          — we'll activate your account within an hour.
+          Paid plans billed monthly via{" "}
+          <span className="font-medium text-ink">My-CoolPay</span> — mobile money (Orange Money, MTN MoMo) or card.
+          Cancel any time: email{" "}
+          <a className="text-ink font-medium hover:underline" href="mailto:prodlyft@gmail.com">prodlyft@gmail.com</a>.
         </div>
 
         <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
