@@ -65,7 +65,12 @@ function SignUpForm() {
         setSubmitting(false);
         return;
       }
-      router.push(callbackUrl);
+      let target = callbackUrl;
+      if (target === "/dashboard") {
+        const me = await fetch("/api/auth/session").then((r) => r.ok ? r.json() : null).catch(() => null);
+        if (me?.user?.is_admin) target = "/admin";
+      }
+      router.push(target);
       router.refresh();
     } catch (e) {
       setErr((e as Error).message);

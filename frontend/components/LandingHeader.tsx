@@ -98,6 +98,17 @@ export function LandingHeader() {
                 <div className="text-[11.5px] text-muted">Signed in as</div>
                 <div className="text-[13px] font-medium text-ink truncate">{session.user.email}</div>
               </div>
+              {(session.user as { is_admin?: boolean }).is_admin && (
+                <Link
+                  href="/admin"
+                  className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2 font-medium"
+                  onClick={() => setUserMenuOpen(false)}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    Admin dashboard <span className="chip chip-accent text-[10px]">admin</span>
+                  </span>
+                </Link>
+              )}
               <Link href="/dashboard" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setUserMenuOpen(false)}>Dashboard</Link>
               <Link href="/products" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setUserMenuOpen(false)}>Extracts</Link>
               <Link href="/integrations" className="block px-2.5 py-2 rounded-md text-[13px] hover:bg-line-2" onClick={() => setUserMenuOpen(false)}>Integrations</Link>

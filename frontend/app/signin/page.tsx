@@ -26,7 +26,7 @@ export default function SignInPage() {
 function SignInForm() {
   const router = useRouter();
   const search = useSearchParams();
-  const callbackUrl = search.get("callbackUrl") ?? "/dashboard";
+  const callbackUrl = search.get("callbackUrl");
   const urlError = search.get("error");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,7 +49,14 @@ function SignInForm() {
       setSubmitting(false);
       return;
     }
-    router.push(callbackUrl);
+    // If no explicit callback was passed, route admins to /admin and
+    // regular users to /dashboard.
+    let target = callbackUrl;
+    if (!target) {
+      const me = await fetch("/api/auth/session").then((r) => r.ok ? r.json() : null).catch(() => null);
+      target = me?.user?.is_admin ? "/admin" : "/dashboard";
+    }
+    router.push(target);
     router.refresh();
   }
 
@@ -97,7 +104,7 @@ function SignInForm() {
       <div className="mt-6 text-center text-[13px] text-muted">
         New to Prodlyft?{" "}
         <Link
-          href={`/signup?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+          href={callbackUrl ? `/signup?callbackUrl=${encodeURIComponent(callbackUrl)}` : "/signup"}
           className="text-ink font-medium hover:underline"
         >
           Create an account
