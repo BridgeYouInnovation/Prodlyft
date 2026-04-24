@@ -2,14 +2,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Icons } from "@/components/Icons";
 import { LandingHeader } from "@/components/LandingHeader";
 import { createCrawl } from "@/lib/api";
 
 const logos = ["ALBA", "NORTHWIND", "KOFI", "LUMEN", "PARITY", "FIELDNOTE"];
+const PENDING_KEY = "prodlyft_pending_extract";
 
 export default function Landing() {
   const router = useRouter();
+  const { status: authStatus } = useSession();
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,12 +28,34 @@ export default function Landing() {
     e.preventDefault();
     setError(null);
     if (!url.trim()) return;
+    if (authStatus === "loading") return;
+
+    const maxNum = maxProducts.trim() === "" ? null : Math.max(1, Math.floor(Number(maxProducts)));
+    const pending = {
+      url: url.trim(),
+      platform: "auto" as const,
+      max_products: Number.isFinite(maxNum as number) ? (maxNum as number) : null,
+      category_filter: categoryFilter.trim() || null,
+      ts: Date.now(),
+    };
+
+    // Anonymous — stash the form state, send them through sign-up, and resume
+    // on /extract-start after auth completes.
+    if (authStatus !== "authenticated") {
+      try {
+        sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+      } catch {
+        /* sessionStorage disabled — they'll just re-enter the URL after auth */
+      }
+      router.push(`/signup?callbackUrl=${encodeURIComponent("/extract-start")}`);
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const max = maxProducts.trim() === "" ? null : Math.max(1, Math.floor(Number(maxProducts)));
-      const { crawl_id } = await createCrawl(url.trim(), "auto", {
-        max_products: Number.isFinite(max as number) ? (max as number) : null,
-        category_filter: categoryFilter.trim() || null,
+      const { crawl_id } = await createCrawl(pending.url, "auto", {
+        max_products: pending.max_products,
+        category_filter: pending.category_filter,
       });
       router.push(`/crawls/${crawl_id}`);
     } catch (err) {
@@ -38,6 +63,15 @@ export default function Landing() {
       setSubmitting(false);
     }
   }
+
+  const cta =
+    authStatus === "loading"
+      ? "Checking…"
+      : submitting
+      ? "Queuing…"
+      : authStatus === "authenticated"
+      ? "Extract"
+      : "Continue";
 
   return (
     <div className="min-h-screen bg-bg">
@@ -75,11 +109,11 @@ export default function Landing() {
           />
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || authStatus === "loading"}
             className="btn-primary btn-lg w-full sm:w-auto"
             style={{ height: 44 }}
           >
-            {submitting ? "Queuing…" : <>Extract <Icons.ArrowRight size={14} /></>}
+            {cta} <Icons.ArrowRight size={14} />
           </button>
         </form>
 
@@ -140,7 +174,7 @@ export default function Landing() {
                     <span className="chip">max {Number(maxProducts).toLocaleString()}</span>
                   )}
                   {categoryFilter.trim() !== "" && (
-                    <span className="chip">category ~ "{categoryFilter.trim()}"</span>
+                    <span className="chip">category ~ &ldquo;{categoryFilter.trim()}&rdquo;</span>
                   )}
                   <button
                     type="button"
@@ -157,9 +191,13 @@ export default function Landing() {
 
         {error && <div className="mt-3 text-[12px] text-danger">{error}</div>}
         <div className="mt-4 text-[12px] text-muted-2 flex items-center justify-center gap-2 md:gap-4 flex-wrap">
-          <span className="flex items-center gap-1.5"><span className="dot text-accent" /> Public catalogs only — no login required</span>
+          {authStatus === "authenticated" ? (
+            <span className="flex items-center gap-1.5"><span className="dot text-accent" /> Signed in — extract will run immediately</span>
+          ) : (
+            <span className="flex items-center gap-1.5"><span className="dot text-accent" /> Free account required — we'll hold your URL while you sign up</span>
+          )}
           <span className="hidden sm:inline">·</span>
-          <span>CSV export for Shopify & WooCommerce</span>
+          <span>CSV export for Shopify &amp; WooCommerce</span>
         </div>
 
         {/* How it works */}

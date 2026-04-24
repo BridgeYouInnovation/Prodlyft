@@ -141,40 +141,26 @@ export default function CrawlDetail() {
           </div>
         )}
 
-        {/* Sign-in gate for anonymous users */}
+        {/* Summary + search (signed-in only) */}
         {crawl?.status === "done" && !signedIn && authStatus !== "loading" && (
           <div className="card p-5 md:p-7 mb-5 text-center max-w-[560px] mx-auto w-full">
             <div className="w-12 h-12 rounded-full grid place-items-center mx-auto mb-4" style={{ background: "var(--accent-soft)", color: "var(--accent-ink)" }}>
               <Icons.Sparkle size={22} />
             </div>
-            <div className="text-[11.5px] font-mono uppercase tracking-wider text-muted mb-1.5">{crawl.platform} extract</div>
-            <h2 className="text-[22px] md:text-[26px] font-[560] tracking-tight2 mb-1.5">
-              {crawl.products?.length ?? 0} products ready
+            <h2 className="text-[20px] md:text-[22px] font-[560] tracking-tight2 mb-1.5">
+              Sign in to view this extract
             </h2>
-            <p className="text-[13.5px] text-muted mb-5 leading-[1.55]">
-              Sign in to view the full product list and download the Shopify or WooCommerce CSV.
+            <p className="text-[13px] text-muted mb-5 leading-[1.55]">
+              Extracts are tied to the account that created them.
             </p>
             <div className="flex flex-col sm:flex-row gap-2 justify-center">
-              <Link
-                href={`/signup?callbackUrl=${encodeURIComponent(pathname)}`}
-                className="btn-primary btn-lg"
-              >
-                Create account <Icons.ArrowRight size={14} />
+              <Link href={`/signin?callbackUrl=${encodeURIComponent(pathname)}`} className="btn-primary btn-lg">
+                Sign in <Icons.ArrowRight size={14} />
               </Link>
-              <Link
-                href={`/signin?callbackUrl=${encodeURIComponent(pathname)}`}
-                className="btn btn-lg"
-              >
-                Sign in
-              </Link>
-            </div>
-            <div className="mt-3 text-[11.5px] text-muted-2">
-              Free — no credit card required.
             </div>
           </div>
         )}
 
-        {/* Summary + search (signed-in only) */}
         {crawl?.status === "done" && signedIn && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-5">

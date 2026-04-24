@@ -28,7 +28,7 @@ export default {
         return true;
       }
 
-      if (path.startsWith("/dashboard") && !isLoggedIn) return false;
+      if ((path.startsWith("/dashboard") || path.startsWith("/extract-start")) && !isLoggedIn) return false;
       return true;
     },
     jwt({ token, user }) {
