@@ -67,7 +67,7 @@ export default function ExtractStart() {
     <div className="min-h-screen grid place-items-center bg-bg px-4">
       <div className="text-center max-w-[400px]">
         <div className="flex justify-center mb-4">
-          <BrandMark size={32} />
+          <BrandMark size={40} />
         </div>
         {err ? (
           <>

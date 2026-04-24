@@ -10,8 +10,8 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen flex flex-col bg-bg">
       <header className="h-[60px] px-4 md:px-12 flex items-center border-b border-line">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-[15px] tracking-tight2">
-          <BrandMark /> Prodlyft
+        <Link href="/" className="flex items-center" aria-label="Prodlyft home">
+          <BrandMark />
         </Link>
         <div className="ml-3 chip font-mono">admin</div>
       </header>

@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   title: "Prodlyft — Every product, from any URL, in seconds",
   description:
     "Prodlyft pulls product data from any storefront, cleans it up, and syncs it to WooCommerce or Shopify.",
+  icons: {
+    icon: [{ url: "/prodlyft_fav.png", type: "image/png" }],
+    shortcut: [{ url: "/prodlyft_fav.png", type: "image/png" }],
+    apple: [{ url: "/prodlyft_fav.png" }],
+  },
 };
 
 export const viewport: Viewport = {

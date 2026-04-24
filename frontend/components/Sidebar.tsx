@@ -92,7 +92,6 @@ export function Sidebar({
       >
         <div className="flex items-center gap-2 px-2 pb-4 pt-1">
           <BrandMark />
-          <div className="font-semibold text-sm tracking-tight2">Prodlyft</div>
           <div className="flex-1" />
           <button
             onClick={onClose}

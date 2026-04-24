@@ -34,11 +34,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
         style={{ backgroundColor: "#0E0E0C" }}
       >
         <div className="flex items-center gap-2 px-2 pb-4 pt-1">
-          <BrandMark />
-          <div>
-            <div className="font-semibold text-sm tracking-tight2 text-white">Prodlyft</div>
-            <div className="text-[10.5px] font-mono text-white/50 uppercase tracking-wider">Admin</div>
-          </div>
+          <BrandMark light />
+          <div className="text-[10.5px] font-mono text-white/50 uppercase tracking-wider">Admin</div>
           <div className="flex-1" />
           <button
             onClick={() => setOpen(false)}
