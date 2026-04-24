@@ -4,19 +4,12 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { Icons } from "@/components/Icons";
 import { LandingHeader } from "@/components/LandingHeader";
-import { createCrawl, type Platform } from "@/lib/api";
+import { createCrawl } from "@/lib/api";
 
-type PlatformChoice = "shopify" | "woocommerce" | "other";
-
-const platforms: { id: PlatformChoice; name: string; sub: string; color: string; hint: string }[] = [
-  { id: "shopify",     name: "Shopify",      sub: "Any Shopify store",           color: "#95BF47", hint: "example.myshopify.com" },
-  { id: "woocommerce", name: "WordPress",    sub: "WooCommerce storefronts",     color: "#7F54B3", hint: "wp.example.com" },
-  { id: "other",       name: "Other",        sub: "Single product URL",          color: "#0E0E0C", hint: "example.com/products/sku" },
-];
+const logos = ["ALBA", "NORTHWIND", "KOFI", "LUMEN", "PARITY", "FIELDNOTE"];
 
 export default function Landing() {
   const router = useRouter();
-  const [pick, setPick] = useState<PlatformChoice>("shopify");
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,16 +20,13 @@ export default function Landing() {
     if (!url.trim()) return;
     setSubmitting(true);
     try {
-      const platformParam: Platform = pick;
-      const { crawl_id } = await createCrawl(url.trim(), platformParam);
+      const { crawl_id } = await createCrawl(url.trim(), "auto");
       router.push(`/crawls/${crawl_id}`);
     } catch (err) {
       setError((err as Error).message);
       setSubmitting(false);
     }
   }
-
-  const selected = platforms.find((p) => p.id === pick)!;
 
   return (
     <div className="min-h-screen bg-bg">
@@ -56,29 +46,6 @@ export default function Landing() {
           Paste a store URL. Prodlyft auto-detects the platform, pulls every product, and hands you an import-ready CSV for Shopify or WooCommerce.
         </p>
 
-        {/* Platform tiles */}
-        <div className="grid grid-cols-3 gap-1.5 sm:gap-3 mb-4 max-w-[640px] mx-auto">
-          {platforms.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setPick(p.id)}
-              className="text-left rounded-lg border p-2.5 sm:p-4 transition-colors bg-white min-w-0"
-              style={{
-                borderColor: pick === p.id ? "var(--ink)" : "var(--line)",
-                boxShadow: pick === p.id ? "0 0 0 3px rgba(14,14,12,0.06)" : "none",
-              }}
-            >
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded relative flex-shrink-0" style={{ background: p.color, opacity: 0.15 }}>
-                  <div className="absolute inset-1 rounded-sm" style={{ background: p.color }} />
-                </div>
-                <div className="text-[12px] sm:text-[13px] font-medium truncate">{p.name}</div>
-              </div>
-              <div className="text-[10.5px] sm:text-[11.5px] text-muted leading-[1.35] line-clamp-2">{p.sub}</div>
-            </button>
-          ))}
-        </div>
-
         <form
           onSubmit={onSubmit}
           className="max-w-[640px] mx-auto bg-white border border-line rounded-xl p-2 flex flex-col sm:flex-row sm:items-center gap-2"
@@ -90,7 +57,7 @@ export default function Landing() {
           </div>
           <input
             className="flex-1 font-mono text-[13.5px] text-ink text-left bg-transparent outline-none px-3 sm:px-0 min-w-0"
-            placeholder={selected.hint}
+            placeholder="store.myshopify.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             autoFocus
@@ -114,7 +81,7 @@ export default function Landing() {
         {/* How it works */}
         <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
           {[
-            { n: "01", t: "Paste the store URL", d: "Works on any Shopify or WooCommerce storefront. Choose Other for a single product URL." },
+            { n: "01", t: "Paste the store URL", d: "Works on any Shopify or WooCommerce storefront. A single product URL works too — Prodlyft auto-detects what you pasted." },
             { n: "02", t: "We pull the full catalog", d: "Titles, prices, variants, images, SKUs, categories. No API keys, no setup." },
             { n: "03", t: "Download import-ready CSV", d: "Shopify CSV and WooCommerce CSV both supported. Upload straight into the other platform." },
           ].map((s) => (
@@ -130,7 +97,7 @@ export default function Landing() {
       <section className="mt-16 md:mt-20 pt-12 md:pt-[72px] pb-12 px-4 md:px-12 border-t border-line-2">
         <div className="text-center text-[11.5px] text-muted uppercase tracking-wider mb-[22px]">Used by 4,200+ merchants</div>
         <div className="flex justify-center gap-6 md:gap-12 flex-wrap font-mono text-[12px] md:text-[14px] tracking-[0.15em] text-muted-2">
-          {["ALBA", "NORTHWIND", "KOFI", "LUMEN", "PARITY", "FIELDNOTE"].map((l) => (<span key={l}>{l}</span>))}
+          {logos.map((l) => (<span key={l}>{l}</span>))}
         </div>
       </section>
     </div>
