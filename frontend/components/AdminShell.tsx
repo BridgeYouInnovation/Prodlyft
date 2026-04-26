@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { BrandMark } from "./BrandMark";
 import { Icons } from "./Icons";
@@ -10,6 +10,7 @@ const nav = [
   { id: "overview", label: "Overview", icon: "Home" as const, href: "/admin" },
   { id: "users", label: "Users", icon: "Box" as const, href: "/admin/users" },
   { id: "extracts", label: "Extracts", icon: "Import" as const, href: "/admin/extracts" },
+  { id: "tickets", label: "Tickets", icon: "Bell" as const, href: "/admin/tickets" },
   { id: "configs", label: "AI configs", icon: "Sparkle" as const, href: "/admin/configs" },
 ];
 
@@ -17,9 +18,26 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const { data: session } = useSession();
   const [open, setOpen] = useState(false);
+  const [adminUnread, setAdminUnread] = useState(0);
 
   const email = session?.user?.email ?? "";
   const initials = (email || "?").slice(0, 1).toUpperCase();
+
+  useEffect(() => {
+    if (!session?.user) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/me/unread");
+        if (!r.ok) return;
+        const d = (await r.json()) as { admin_unread?: number };
+        if (alive) setAdminUnread(d.admin_unread || 0);
+      } catch { /* ignore */ }
+    };
+    tick();
+    const t = setInterval(tick, 8000);
+    return () => { alive = false; clearInterval(t); };
+  }, [session?.user]);
 
   return (
     <div className="min-h-screen flex">
@@ -50,6 +68,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           {nav.map((i) => {
             const Icon = Icons[i.icon];
             const active = i.id === "overview" ? path === "/admin" : path?.startsWith(i.href);
+            const showBadge = i.id === "tickets" && adminUnread > 0;
             return (
               <Link
                 key={i.id}
@@ -64,6 +83,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
               >
                 <Icon size={14} />
                 <span className="flex-1">{i.label}</span>
+                {showBadge && (
+                  <span
+                    className="text-[10px] font-medium px-1.5 rounded"
+                    style={{ background: "var(--accent)", color: "white", minWidth: 18, textAlign: "center" }}
+                  >
+                    {adminUnread}
+                  </span>
+                )}
               </Link>
             );
           })}

@@ -149,7 +149,13 @@ export default function CrawlDetail() {
               <div className="text-[14px] font-medium">Extraction failed</div>
             </div>
             <div className="text-[13px] text-ink-2 whitespace-pre-wrap">{crawl.error || "Unknown error"}</div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                href={`/tickets/new?crawl=${encodeURIComponent(id)}&subject=${encodeURIComponent(`Help with extract ${id.slice(0, 8)}`)}`}
+                className="btn-primary"
+              >
+                <Icons.Bell size={14} /> Open a ticket
+              </Link>
               <Link href="/" className="btn">Start over</Link>
               <Link href="/dashboard" className="btn-ghost">Back to dashboard</Link>
             </div>

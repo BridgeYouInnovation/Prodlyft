@@ -6,11 +6,12 @@ import { Icons } from "./Icons";
 import { BrandMark } from "./BrandMark";
 import { FREE_LIFETIME_CAP, PRO_PERIOD_CAP, planLabel } from "@/lib/plans";
 
-export type NavId = "dashboard" | "extracts" | "admin";
+export type NavId = "dashboard" | "extracts" | "tickets" | "admin";
 
 const items: { id: NavId; label: string; icon: keyof typeof Icons; href: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: "Home", href: "/dashboard" },
   { id: "extracts", label: "Extracts", icon: "Box", href: "/products" },
+  { id: "tickets", label: "Help", icon: "Bell", href: "/tickets" },
 ];
 
 export function Sidebar({
@@ -34,6 +35,7 @@ export function Sidebar({
   // Live usage — session.plan is static at login, usage changes as crawls
   // complete, so we fetch and poll /api/me while the sidebar is mounted.
   const [usage, setUsage] = useState<{ used: number; cap: number | null; remaining: number | null } | null>(null);
+  const [unread, setUnread] = useState(0);
   useEffect(() => {
     if (!session?.user) return;
     let alive = true;
@@ -53,6 +55,12 @@ export function Sidebar({
           p === "pro" ? d.products_used_in_period ?? 0 : d.products_used_total ?? 0;
         const cap = p === "unlimited" ? null : p === "pro" ? PRO_PERIOD_CAP : FREE_LIFETIME_CAP;
         setUsage({ used, cap, remaining: d.remaining ?? null });
+      } catch { /* ignore */ }
+      try {
+        const u = await fetch("/api/me/unread");
+        if (!u.ok) return;
+        const dd = (await u.json()) as { user_unread?: number };
+        if (alive) setUnread(dd.user_unread || 0);
       } catch { /* ignore */ }
     };
     tick();
@@ -105,6 +113,7 @@ export function Sidebar({
         <nav className="flex flex-col gap-px mt-1">
           {items.map((i) => {
             const Icon = Icons[i.icon];
+            const showBadge = i.id === "tickets" && unread > 0;
             return (
               <Link
                 key={i.id}
@@ -114,6 +123,11 @@ export function Sidebar({
               >
                 <Icon size={14} />
                 <span className="flex-1">{i.label}</span>
+                {showBadge && (
+                  <span className="chip chip-warn text-[10px]" style={{ height: 16, padding: "0 6px" }}>
+                    {unread}
+                  </span>
+                )}
               </Link>
             );
           })}

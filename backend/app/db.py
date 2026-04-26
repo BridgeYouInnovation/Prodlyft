@@ -70,6 +70,33 @@ ALTER TABLE crawls ADD COLUMN IF NOT EXISTS category_filter VARCHAR(255);
 ALTER TABLE crawls ADD COLUMN IF NOT EXISTS user_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_crawls_user_id ON crawls(user_id);
 
+-- Support tickets — a lightweight live-chat thread between a user and an
+-- admin. Auto-suggested when a crawl fails so the user can ask for help.
+CREATE TABLE IF NOT EXISTS tickets (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open',
+  related_crawl_id TEXT,
+  last_user_view_at TIMESTAMPTZ,
+  last_admin_view_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_updated_at ON tickets(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS ticket_messages (
+  id TEXT PRIMARY KEY,
+  ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  sender_user_id INTEGER NOT NULL,
+  sender_role VARCHAR(10) NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON ticket_messages(ticket_id, created_at);
+
 -- My-CoolPay payments.
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,
