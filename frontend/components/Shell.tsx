@@ -2,6 +2,7 @@
 import { ReactNode, useState } from "react";
 import { Sidebar, type NavId } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { ChatWidget } from "./ChatWidget";
 
 export function Shell({
   active,
@@ -22,6 +23,7 @@ export function Shell({
         <Topbar crumbs={crumbs} right={right} onMenuClick={() => setOpen(true)} />
         {children}
       </div>
+      <ChatWidget />
     </div>
   );
 }
