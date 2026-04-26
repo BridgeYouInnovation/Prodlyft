@@ -8,7 +8,7 @@ import { Icons } from "./Icons";
 const tools = [
   { name: "Product Catalog Extractor", desc: "Pull full Shopify & WooCommerce catalogs.", href: "/", live: true },
   { name: "WP Theme Detector", desc: "Detect the theme and plugins behind any WordPress site.", href: "/tools/wp-detector", live: true },
-  { name: "Store Platform Checker", desc: "Identify whether a URL runs Shopify, Woo, or something else.", href: "#", live: false },
+  { name: "Store Platform Checker", desc: "Identify whether a URL runs Shopify, Woo, or something else.", href: "/tools/platform-checker", live: true },
   { name: "Currency Converter", desc: "Live FX rates between any pair.", href: "#", live: false },
 ];
 
