@@ -21,6 +21,7 @@ from .plans import (
     maybe_reset_period,
     record_usage,
 )
+from . import firecrawl
 
 
 # Safety cap — the most products we'll ever fetch from a single storefront in
@@ -159,6 +160,21 @@ def process_crawl(crawl_id: str) -> None:
                         if v and not raw.get(k):
                             raw[k] = v
 
+            # Last-resort hosted fallback. Pay-per-page, so only fires when
+            # the free paths above gave us neither a title nor a price.
+            if (not raw.get("title") or raw.get("price") is None) and firecrawl.is_enabled():
+                print("[worker] still empty → trying Firecrawl", flush=True)
+                _update(crawl_id, progress={"step": "firecrawl"})
+                fc_raw = firecrawl.scrape(url)
+                print(
+                    f"[worker] firecrawl: got={bool(fc_raw)} title={(fc_raw or {}).get('title')!r} price={(fc_raw or {}).get('price')}",
+                    flush=True,
+                )
+                if fc_raw:
+                    for k, v in fc_raw.items():
+                        if v and not raw.get(k):
+                            raw[k] = v
+
             _update(crawl_id, progress={"step": "cleaning"})
             cleaned = clean_product(raw)
             products = [cleaned]
@@ -171,6 +187,27 @@ def process_crawl(crawl_id: str) -> None:
             products = [p for p in products if _matches_category(p, category_filter)]
         if user_max and len(products) > user_max:
             products = products[:user_max]
+
+        # Mark "done with nothing useful" as failed so the user gets a clear
+        # message instead of an empty Extracts page that looks like success.
+        if mode == "catalog" and len(products) == 0:
+            msg = (
+                f"No products returned from this {platform} store. "
+                "Either the public catalog API is disabled or the host blocked us. "
+                "Try the URL with platform=Other for a single-product extract."
+            )
+            _update(crawl_id, status="failed", error=msg, progress={"step": "empty", "total": 0}, total=0)
+            return
+        if mode == "single" and len(products) == 1:
+            only = products[0]
+            if not only.get("title") and only.get("price") is None:
+                msg = (
+                    "Couldn't extract any product data from this page. "
+                    "The site likely blocks headless browsers or uses a non-standard layout. "
+                    + ("Configure FIRECRAWL_API_KEY for a stealth-mode fallback." if not firecrawl.is_enabled() else "Even Firecrawl couldn't read it.")
+                )
+                _update(crawl_id, status="failed", error=msg, progress={"step": "empty", "total": 0}, total=0)
+                return
 
         _update(crawl_id, progress={"step": "saving", "done": 0, "total": len(products)}, total=len(products))
         for i, p in enumerate(products, start=1):

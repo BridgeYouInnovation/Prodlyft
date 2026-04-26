@@ -130,12 +130,24 @@ def _shopify_to_product(p: dict, base: str) -> dict:
         "short_description": short or None,
         "description": description or None,
         "categories": categories,
-        "tags": [t.strip() for t in (p.get("tags") or "").split(",") if t.strip()],
+        "tags": _normalize_tags(p.get("tags")),
         "images": images,
         "variants": variants_out,
         "in_stock": any_in_stock if variants_out else None,
         "source_url": urljoin(base, f"/products/{handle}") if handle else None,
     }
+
+
+def _normalize_tags(raw: Any) -> list[str]:
+    """Shopify's /products.json returns `tags` as a comma-separated string on
+    classic stores and as an array on newer themes. Handle both."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(t).strip() for t in raw if str(t).strip()]
+    if isinstance(raw, str):
+        return [t.strip() for t in raw.split(",") if t.strip()]
+    return []
 
 
 def fetch_shopify_catalog(

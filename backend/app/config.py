@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     # domain so cost stays linear in unique domains, not requests.
     openrouter_scraper_model: str = "anthropic/claude-sonnet-4.5"
 
+    # Optional last-resort fallback for the "Other" path. When Playwright
+    # gets a stub / bot-challenge page and the AI config still returns
+    # nothing useful, we hand the URL to Firecrawl's hosted scraper.
+    # Costs ~$0.006 per page so it only fires after the free paths fail.
+    # Leave empty to disable Firecrawl entirely.
+    firecrawl_api_key: str = ""
+    firecrawl_base_url: str = "https://api.firecrawl.dev"
+
     cors_origins: str = "http://localhost:3000"
 
     scraper_timeout_ms: int = 30000
