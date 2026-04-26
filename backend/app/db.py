@@ -97,6 +97,68 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON ticket_messages(ticket_id, created_at);
 
+-- Auto Blogger: connection from a Prodlyft user to one of their WordPress
+-- sites, plus the schedules and articles produced through that link.
+CREATE TABLE IF NOT EXISTS wp_connections (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  site_url TEXT NOT NULL,
+  site_name TEXT,
+  api_key TEXT NOT NULL,
+  wp_version TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  last_ping_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_wp_connections_user_id ON wp_connections(user_id);
+
+CREATE TABLE IF NOT EXISTS blog_schedules (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  wp_connection_id TEXT NOT NULL REFERENCES wp_connections(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  topics JSONB NOT NULL,
+  tone TEXT,
+  length_target VARCHAR(10) NOT NULL DEFAULT 'medium',
+  cadence VARCHAR(20) NOT NULL DEFAULT 'weekly',
+  publish_status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  default_categories JSONB,
+  default_tags JSONB,
+  generate_image BOOLEAN NOT NULL DEFAULT TRUE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  next_topic_index INTEGER NOT NULL DEFAULT 0,
+  last_run_at TIMESTAMPTZ,
+  next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_schedules_user_id ON blog_schedules(user_id);
+CREATE INDEX IF NOT EXISTS idx_blog_schedules_due ON blog_schedules(next_run_at) WHERE enabled = TRUE;
+
+CREATE TABLE IF NOT EXISTS blog_articles (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  wp_connection_id TEXT REFERENCES wp_connections(id) ON DELETE SET NULL,
+  schedule_id TEXT REFERENCES blog_schedules(id) ON DELETE SET NULL,
+  topic TEXT NOT NULL,
+  tone TEXT,
+  title TEXT,
+  excerpt TEXT,
+  body TEXT,
+  image_url TEXT,
+  image_prompt TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  publish_status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  wp_post_id INTEGER,
+  wp_post_url TEXT,
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_blog_articles_user_id ON blog_articles(user_id);
+CREATE INDEX IF NOT EXISTS idx_blog_articles_schedule ON blog_articles(schedule_id);
+
 -- My-CoolPay payments.
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,

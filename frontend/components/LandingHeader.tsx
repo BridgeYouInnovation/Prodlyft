@@ -9,7 +9,7 @@ const tools = [
   { name: "Product Catalog Extractor", desc: "Pull full Shopify & WooCommerce catalogs.", href: "/", live: true },
   { name: "WP Theme Detector", desc: "Detect the theme and plugins behind any WordPress site.", href: "/tools/wp-detector", live: true },
   { name: "Store Platform Checker", desc: "Identify whether a URL runs Shopify, Woo, or something else.", href: "/tools/platform-checker", live: true },
-  { name: "Auto Blogger", desc: "Generate WordPress blog posts with AI and publish them in one click.", href: "#", live: false },
+  { name: "Auto Blogger", desc: "Generate WordPress blog posts with AI and publish them in one click.", href: "/blogger", live: true },
 ];
 
 export function LandingHeader() {

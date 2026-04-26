@@ -6,11 +6,12 @@ import { Icons } from "./Icons";
 import { BrandMark } from "./BrandMark";
 import { FREE_LIFETIME_CAP, PRO_PERIOD_CAP, planLabel } from "@/lib/plans";
 
-export type NavId = "dashboard" | "extracts" | "tickets" | "admin";
+export type NavId = "dashboard" | "extracts" | "blogger" | "tickets" | "admin";
 
 const items: { id: NavId; label: string; icon: keyof typeof Icons; href: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: "Home", href: "/dashboard" },
   { id: "extracts", label: "Extracts", icon: "Box", href: "/products" },
+  { id: "blogger", label: "Auto Blogger", icon: "Sparkle", href: "/blogger" },
   { id: "tickets", label: "Help", icon: "Bell", href: "/tickets" },
 ];
 
