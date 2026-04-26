@@ -10,6 +10,7 @@ const nav = [
   { id: "overview", label: "Overview", icon: "Home" as const, href: "/admin" },
   { id: "users", label: "Users", icon: "Box" as const, href: "/admin/users" },
   { id: "extracts", label: "Extracts", icon: "Import" as const, href: "/admin/extracts" },
+  { id: "blogger", label: "Auto Blogger", icon: "Sparkle" as const, href: "/admin/blogger" },
   { id: "tickets", label: "Tickets", icon: "Bell" as const, href: "/admin/tickets" },
   { id: "configs", label: "AI configs", icon: "Sparkle" as const, href: "/admin/configs" },
 ];
