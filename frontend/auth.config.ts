@@ -28,7 +28,14 @@ export default {
         return true;
       }
 
-      if ((path.startsWith("/dashboard") || path.startsWith("/extract-start")) && !isLoggedIn) return false;
+      // Protected user-facing surfaces. Anonymous visitors get bounced to
+      // /signin (configured in `pages.signIn`) with the original URL kept
+      // as callbackUrl so they land back here after auth.
+      const requiresAuth =
+        path.startsWith("/dashboard") ||
+        path.startsWith("/extract-start") ||
+        path.startsWith("/blogger");
+      if (requiresAuth && !isLoggedIn) return false;
       return true;
     },
     jwt({ token, user }) {
