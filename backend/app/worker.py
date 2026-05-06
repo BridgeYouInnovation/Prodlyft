@@ -14,13 +14,7 @@ from .ai_scraper import (
     get_or_generate_config,
     extract_with_config,
 )
-from .plans import (
-    QuotaExceeded,
-    compute_cap,
-    get_user,
-    maybe_reset_period,
-    record_usage,
-)
+from .tokens import EXTRACT_PRODUCT, get_balance, try_debit
 from . import firecrawl
 
 
@@ -91,17 +85,23 @@ def process_crawl(crawl_id: str) -> None:
         category_filter = (c.category_filter or "").strip()
         user_id = c.user_id
 
-    # Plan enforcement — clamp user_max to whatever's left on the user's plan.
-    # Reset rolling period first if it's older than 30d.
-    user = get_user(user_id)
-    if user and (user.get("plan") or "free").lower() == "pro":
-        maybe_reset_period(user_id, user.get("plan_period_start"))
-        user = get_user(user_id)
-    try:
-        user_max = compute_cap(user, user_max)
-    except QuotaExceeded as e:
-        _update(crawl_id, status="failed", error=str(e), progress={"step": "quota_exceeded"})
-        return
+    # Token enforcement — clamp user_max to current balance.
+    #   balance == -1 → admin / unlimited, no clamp.
+    #   balance == 0  → fail loudly so the UI shows a top-up CTA.
+    #   balance >  0  → clamp the requested ceiling so we never start a job
+    #                   destined to run out mid-flight.
+    if user_id:
+        balance = get_balance(user_id)
+        if balance == 0:
+            _update(
+                crawl_id,
+                status="failed",
+                error="Out of credits. Top up your token balance to run another extract.",
+                progress={"step": "no_credits", "balance": 0},
+            )
+            return
+        if balance > 0:
+            user_max = min(user_max, balance) if user_max else balance
 
     try:
         if platform == "auto":
@@ -210,16 +210,54 @@ def process_crawl(crawl_id: str) -> None:
                 return
 
         _update(crawl_id, progress={"step": "saving", "done": 0, "total": len(products)}, total=len(products))
+        # Per-product token debit. Charges 1 token only after a product is
+        # successfully saved. If the balance hits 0 mid-loop, stop saving
+        # and end the crawl gracefully — the user keeps everything we did
+        # save, gets a clear "ran out of credits" message and a top-up CTA.
+        saved = 0
+        ran_out = False
         for i, p in enumerate(products, start=1):
+            ok, _bal = (True, -1) if not user_id else try_debit(
+                user_id,
+                EXTRACT_PRODUCT,
+                "extract",
+                ref_type="crawl",
+                ref_id=crawl_id,
+            )
+            if not ok:
+                ran_out = True
+                break
             _insert_product(crawl_id, p)
+            saved = i
             if i % 10 == 0 or i == len(products):
                 _update(crawl_id, progress={"step": "saving", "done": i, "total": len(products)})
 
-        # Track plan usage before marking done (so a /me poll after completion
-        # reflects the new counter).
-        record_usage(user_id, bool(user and user.get("is_admin")), len(products))
+        if ran_out:
+            msg = (
+                f"Ran out of credits after {saved} of {len(products)} products. "
+                "Top up your token balance to extract the rest."
+            )
+            _update(
+                crawl_id,
+                status="done",
+                error=msg,
+                progress={
+                    "step": "ran_out_of_credits",
+                    "done": saved,
+                    "total": len(products),
+                    "partial": True,
+                },
+                total=saved,
+            )
+            return
 
-        _update(crawl_id, status="done", progress={"step": "done", "done": len(products), "total": len(products)}, error=None)
+        _update(
+            crawl_id,
+            status="done",
+            progress={"step": "done", "done": saved, "total": saved},
+            total=saved,
+            error=None,
+        )
     except Exception as e:
         _update(crawl_id, status="failed", error=str(e), progress={"step": "failed"})
         raise

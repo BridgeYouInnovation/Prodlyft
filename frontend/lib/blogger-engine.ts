@@ -1,5 +1,16 @@
-import { pool, findUserById, quotaRemaining } from "./db";
+import { pool, findUserById } from "./db";
 import { LENGTH_WORDS, type LengthTarget, type PublishStatus } from "./blogger";
+import { TOKEN_COSTS, getBalance, tryDebitTokens } from "./tokens";
+
+export class InsufficientTokensError extends Error {
+  constructor(public required: number, public balance: number) {
+    super(
+      `Out of credits — need ${required} tokens for this post, have ${balance}. ` +
+        "Top up to keep generating articles.",
+    );
+    this.name = "InsufficientTokensError";
+  }
+}
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/generations";
@@ -197,21 +208,19 @@ interface DbConnRow {
   api_key: string;
 }
 
-interface DbUserLite {
-  is_admin: boolean;
-  plan: string;
-  products_used_in_period: number;
-  products_used_total: number;
-}
-
 export async function generateAndPost(input: GenerateAndPostInput): Promise<{ articleId: string }> {
-  // 1. Verify quota — articles share the same credit counters as product extracts.
+  // 1. Pre-flight token check. Articles cost 5 tokens (no image) or 10 with
+  //    image. We check the balance up-front so we don't kick off a paid AI
+  //    generation when the user can't afford it; the actual debit happens
+  //    only after the WP post succeeds (rule: pay for delivered units).
   const user = await findUserById(input.userId);
   if (!user) throw new Error("User not found");
+
+  const cost = input.withImage ? TOKEN_COSTS.BLOG_POST_WITH_IMAGE : TOKEN_COSTS.BLOG_POST;
   if (!user.is_admin) {
-    const remaining = quotaRemaining(user as unknown as DbUserLite);
-    if (remaining !== null && remaining <= 0) {
-      throw new Error("Plan quota used up. Upgrade to keep generating articles.");
+    const { balance } = await getBalance(input.userId);
+    if (balance >= 0 && balance < cost) {
+      throw new InsufficientTokensError(cost, balance);
     }
   }
 
@@ -291,15 +300,23 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
       [posted.wp_post_id, posted.wp_post_url, posted.image_url, articleId],
     );
 
-    // 7. Charge the credit.
+    // 7. Charge tokens (only after successful WP post).
     if (!user.is_admin) {
-      await pool.query(
-        `UPDATE users
-            SET products_used_in_period = products_used_in_period + 1,
-                products_used_total     = products_used_total + 1
-          WHERE id = $1`,
-        [input.userId],
-      );
+      const reason = input.withImage ? "blog_post_image" : "blog_post";
+      const { ok, balance } = await tryDebitTokens(input.userId, cost, reason, {
+        ref_type: "article",
+        ref_id: articleId,
+      });
+      if (!ok) {
+        // Extremely unlikely (we pre-flighted), but if a concurrent job
+        // drained the balance between then and now, leave the article on
+        // WordPress and surface the discrepancy in the article row so admins
+        // can reconcile.
+        await pool.query(
+          "UPDATE blog_articles SET error = $1, updated_at = NOW() WHERE id = $2",
+          [`Posted but couldn't debit ${cost} tokens (balance ${balance}). Manual reconcile.`, articleId],
+        );
+      }
     }
 
     return { articleId };

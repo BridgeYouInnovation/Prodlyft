@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
-import { computeNextRun, generateAndPost } from "@/lib/blogger-engine";
+import { computeNextRun, generateAndPost, InsufficientTokensError } from "@/lib/blogger-engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,8 +89,25 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       const msg = (e as Error).message || String(e);
       console.error(`[cron] schedule ${sched.id} failed: ${msg}`);
-      // Push next_run_at forward anyway so a broken schedule doesn't loop
-      // every hour. The article row records the failure.
+
+      // Out-of-credits: auto-pause the schedule so it doesn't keep retrying
+      // every hour. The user resumes it manually after topping up.
+      if (e instanceof InsufficientTokensError) {
+        await pool.query(
+          `UPDATE blog_schedules
+              SET enabled = FALSE,
+                  last_run_at = NOW(),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [sched.id],
+        );
+        results.push({ id: sched.id, ok: false, error: "paused: out of credits" });
+        continue;
+      }
+
+      // Generic failure (AI hiccup, WP timeout, etc.) — push next_run_at
+      // forward so a broken schedule doesn't loop every tick. Article row
+      // records the failure.
       await pool.query(
         `UPDATE blog_schedules
             SET next_run_at = $1,
