@@ -9,6 +9,9 @@ interface AdminUser {
   is_admin: boolean;
   created_at: string | null;
   crawl_count: number;
+  token_balance: number;
+  token_total_purchased: number;
+  token_total_consumed: number;
 }
 
 export default function AdminUsers() {
@@ -62,6 +65,36 @@ export default function AdminUsers() {
     setBusyId(null);
   }
 
+  async function grantTokens(u: AdminUser) {
+    const raw = prompt(
+      `Grant tokens to ${u.email}\nCurrent balance: ${u.token_balance.toLocaleString()}\n\nEnter amount (positive integer):`,
+      "100",
+    );
+    if (!raw) return;
+    const amount = Math.floor(Number(raw));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Amount must be a positive integer.");
+      return;
+    }
+    const note = prompt("Note (optional, e.g. 'support refund' or 'beta tester'):", "") || "";
+    setBusyId(u.id);
+    try {
+      const r = await fetch(`/api/admin/users/${u.id}/tokens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, note, reason: "admin_grant" }),
+      });
+      if (!r.ok) {
+        const data = (await r.json().catch(() => ({}))) as { error?: string };
+        alert(data.error || `Grant failed: HTTP ${r.status}`);
+      } else {
+        await load();
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const filtered = rows.filter((u) => {
     if (!q.trim()) return true;
     const n = q.toLowerCase();
@@ -89,6 +122,7 @@ export default function AdminUsers() {
               <tr>
                 <th>Email</th>
                 <th className="hidden sm:table-cell">Name</th>
+                <th>Tokens</th>
                 <th>Extracts</th>
                 <th>Role</th>
                 <th className="hidden md:table-cell">Joined</th>
@@ -96,11 +130,19 @@ export default function AdminUsers() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={6} className="text-center text-muted py-10">No users.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={7} className="text-center text-muted py-10">No users.</td></tr>}
               {filtered.map((u) => (
                 <tr key={u.id}>
                   <td className="font-medium text-ink max-w-[240px] truncate">{u.email}</td>
                   <td className="hidden sm:table-cell text-muted">{u.name ?? "—"}</td>
+                  <td>
+                    <span
+                      className="font-mono text-[12px]"
+                      title={`Purchased ${u.token_total_purchased.toLocaleString()} · Consumed ${u.token_total_consumed.toLocaleString()}`}
+                    >
+                      {u.is_admin ? "∞" : u.token_balance.toLocaleString()}
+                    </span>
+                  </td>
                   <td>{u.crawl_count}</td>
                   <td>
                     <span className={`chip ${u.is_admin ? "chip-accent" : ""}`}>
@@ -111,6 +153,14 @@ export default function AdminUsers() {
                     {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
                   </td>
                   <td className="text-right whitespace-nowrap">
+                    <button
+                      className="btn-sm btn-ghost"
+                      disabled={busyId === u.id || u.is_admin}
+                      onClick={() => grantTokens(u)}
+                      title={u.is_admin ? "Admins have unlimited tokens" : "Grant tokens"}
+                    >
+                      Grant
+                    </button>
                     <button
                       className="btn-sm btn-ghost"
                       disabled={busyId === u.id}

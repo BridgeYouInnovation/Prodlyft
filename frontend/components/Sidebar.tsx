@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { Icons } from "./Icons";
 import { BrandMark } from "./BrandMark";
-import { FREE_LIFETIME_CAP, PRO_PERIOD_CAP, planLabel } from "@/lib/plans";
 
 export type NavId = "dashboard" | "extracts" | "blogger" | "tickets" | "admin";
 
@@ -25,17 +24,15 @@ export function Sidebar({
   onClose?: () => void;
 }) {
   const { data: session } = useSession();
-  const sessionUser = session?.user as { is_admin?: boolean; plan?: string } | undefined;
+  const sessionUser = session?.user as { is_admin?: boolean } | undefined;
   const isAdmin = sessionUser?.is_admin;
-  const plan = (sessionUser?.plan || "free").toLowerCase();
   const email = session?.user?.email ?? "";
   const name = session?.user?.name;
   const display = name || email.split("@")[0] || "You";
   const initials = (name || email || "?").slice(0, 1).toUpperCase();
 
-  // Live usage — session.plan is static at login, usage changes as crawls
-  // complete, so we fetch and poll /api/me while the sidebar is mounted.
-  const [usage, setUsage] = useState<{ used: number; cap: number | null; remaining: number | null } | null>(null);
+  // Live token balance — polled from /api/me. -1 means admin / unlimited.
+  const [tokens, setTokens] = useState<number | null>(null);
   const [unread, setUnread] = useState(0);
   useEffect(() => {
     if (!session?.user) return;
@@ -44,18 +41,10 @@ export function Sidebar({
       try {
         const r = await fetch("/api/me");
         if (!r.ok) return;
-        const d = (await r.json()) as {
-          plan?: string;
-          products_used_in_period?: number;
-          products_used_total?: number;
-          remaining?: number | null;
-        };
+        const d = (await r.json()) as { tokens?: { balance?: number } };
         if (!alive) return;
-        const p = (d.plan || "free").toLowerCase();
-        const used =
-          p === "pro" ? d.products_used_in_period ?? 0 : d.products_used_total ?? 0;
-        const cap = p === "unlimited" ? null : p === "pro" ? PRO_PERIOD_CAP : FREE_LIFETIME_CAP;
-        setUsage({ used, cap, remaining: d.remaining ?? null });
+        const bal = d.tokens?.balance;
+        if (typeof bal === "number") setTokens(bal);
       } catch { /* ignore */ }
       try {
         const u = await fetch("/api/me/unread");
@@ -161,39 +150,48 @@ export function Sidebar({
 
         {session?.user && (
           <>
-            {/* Plan + usage mini-card */}
+            {/* Token balance mini-card */}
             <div className="border border-line bg-white rounded-lg p-2.5 mb-2">
               <div className="flex items-center gap-1.5 mb-1">
-                <Icons.Sparkle size={12} className={plan === "free" ? "text-muted" : "text-accent"} />
-                <span className="text-[11.5px] font-medium">Plan · {planLabel(plan)}</span>
+                <Icons.Sparkle
+                  size={12}
+                  className={
+                    tokens === -1
+                      ? "text-accent"
+                      : tokens !== null && tokens === 0
+                      ? "text-danger"
+                      : tokens !== null && tokens < 10
+                      ? "text-warn"
+                      : "text-accent"
+                  }
+                />
+                <span className="text-[11.5px] font-medium">Tokens</span>
               </div>
-              {usage && usage.cap !== null ? (
+              {tokens === -1 ? (
+                <div className="text-[10.5px] text-muted">Unlimited (admin)</div>
+              ) : tokens === null ? (
+                <div className="text-[10.5px] text-muted">…</div>
+              ) : (
                 <>
-                  <div className="text-[10.5px] text-muted leading-snug">
-                    {usage.used} / {usage.cap.toLocaleString()} product{usage.cap === 1 ? "" : "s"}
-                    {plan === "pro" ? " this period" : " used"}
+                  <div className="text-[18px] font-[560] tracking-tight2 leading-none mt-0.5">
+                    {tokens.toLocaleString()}
                   </div>
-                  <div className="h-[3px] bg-line-2 rounded-full mt-1.5 overflow-hidden">
-                    <div
-                      className="h-full transition-[width]"
-                      style={{
-                        width: `${Math.min(100, (usage.used / usage.cap) * 100)}%`,
-                        background:
-                          usage.remaining === 0
-                            ? "var(--danger)"
-                            : usage.remaining && usage.remaining < usage.cap * 0.2
-                            ? "var(--warn)"
-                            : "var(--ink)",
-                      }}
-                    />
+                  <div className="text-[10.5px] text-muted mt-0.5 leading-snug">
+                    {tokens === 0
+                      ? "Out of tokens"
+                      : tokens < 10
+                      ? "Running low"
+                      : "available"}
                   </div>
                 </>
-              ) : (
-                <div className="text-[10.5px] text-muted">Unlimited extracts</div>
               )}
-              {plan !== "unlimited" && (
-                <Link href="/pricing" onClick={onClose} className="block text-[10.5px] text-accent-ink hover:underline mt-1.5">
-                  {plan === "free" ? "Upgrade →" : "Upgrade to Unlimited →"}
+              {tokens !== -1 && (
+                <Link
+                  href="/pricing"
+                  onClick={onClose}
+                  className="block text-[10.5px] text-accent-ink hover:underline mt-1.5"
+                >
+                  Top up →
                 </Link>
               )}
             </div>

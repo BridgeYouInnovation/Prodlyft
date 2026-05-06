@@ -51,6 +51,7 @@ export default function Dashboard() {
   const [loaded, setLoaded] = useState(false);
   const [quickUrl, setQuickUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [tokens, setTokens] = useState<number | null>(null);
 
   const firstName = session?.user?.name?.split(" ")[0]
     || session?.user?.email?.split("@")[0]
@@ -63,6 +64,21 @@ export default function Dashboard() {
       .catch(() => { if (alive) setLoaded(true); });
     tick();
     const t = setInterval(tick, 4000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/me");
+        if (!r.ok) return;
+        const d = (await r.json()) as { tokens?: { balance?: number } };
+        if (alive && typeof d.tokens?.balance === "number") setTokens(d.tokens.balance);
+      } catch { /* ignore */ }
+    };
+    tick();
+    const t = setInterval(tick, 8000);
     return () => { alive = false; clearInterval(t); };
   }, []);
 
@@ -83,11 +99,13 @@ export default function Dashboard() {
   const failed = crawls.filter(c => c.status === "failed").length;
   const done = crawls.filter(c => c.status === "done").length;
 
+  const tokenLabel =
+    tokens === null ? "…" : tokens === -1 ? "∞" : tokens.toLocaleString();
   const stats = [
+    { label: "Tokens", value: tokenLabel, accent: tokens !== null && tokens >= 0 && tokens < 10 },
     { label: "Extracts", value: String(crawls.length) },
     { label: "Products pulled", value: totalProducts.toLocaleString() },
     { label: "Running", value: String(running) },
-    { label: "Failed", value: String(failed) },
   ];
 
   return (
@@ -113,11 +131,38 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {stats.map((s, i) => (
             <div key={i} className="card px-4 py-3.5">
-              <div className="text-[11.5px] text-muted mb-1.5">{s.label}</div>
-              <div className="text-2xl font-[560] tracking-tight2">{s.value}</div>
+              <div className="text-[11.5px] text-muted mb-1.5 flex items-center gap-1.5">
+                {s.label}
+                {s.label === "Tokens" && (
+                  <Link href="/pricing" className="text-[10px] text-accent-ink hover:underline ml-auto">
+                    Top up →
+                  </Link>
+                )}
+              </div>
+              <div
+                className="text-2xl font-[560] tracking-tight2"
+                style={{ color: s.accent ? "var(--warn-ink)" : undefined }}
+              >
+                {s.value}
+              </div>
             </div>
           ))}
         </div>
+
+        {tokens !== null && tokens >= 0 && tokens < 10 && (
+          <div className="card p-4 mb-6 flex items-start gap-3" style={{ borderColor: "var(--warn)" }}>
+            <Icons.Sparkle size={18} className="text-warn flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium mb-0.5">
+                Running low on tokens
+              </div>
+              <div className="text-[12.5px] text-muted">
+                You have {tokens} token{tokens === 1 ? "" : "s"} left. Top up to keep extracting and publishing.
+              </div>
+            </div>
+            <Link href="/pricing" className="btn-primary btn-sm flex-shrink-0">Buy tokens</Link>
+          </div>
+        )}
 
         <div className="grid gap-5 grid-cols-1 lg:grid-cols-[1fr_320px]">
           <div className="card overflow-hidden min-w-0">
