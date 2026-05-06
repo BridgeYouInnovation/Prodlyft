@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { LandingHeader } from "@/components/LandingHeader";
 import { Icons } from "@/components/Icons";
+import { operatorLabel } from "@/lib/mcp-shared";
 
 type PaymentStatus = "created" | "pending" | "success" | "canceled" | "failed";
 
@@ -30,6 +31,7 @@ function SuccessBody() {
   const [packId, setPackId] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
   const [tokensAdded, setTokensAdded] = useState<number | null>(null);
+  const [operator, setOperator] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ref) { setStatus("unknown"); return; }
@@ -40,10 +42,11 @@ function SuccessBody() {
       try {
         const r = await fetch(`/api/payment/${encodeURIComponent(ref)}`);
         if (!r.ok) return;
-        const d = (await r.json()) as { status: PaymentStatus; plan: string };
+        const d = (await r.json()) as { status: PaymentStatus; plan: string; operator?: string | null };
         if (!alive) return;
         setStatus(d.status);
         setPackId(d.plan);
+        if (d.operator) setOperator(d.operator);
 
         if (d.status === "success") {
           // Surface "+N tokens" + new balance on the success card.
@@ -92,7 +95,8 @@ function SuccessBody() {
           {tokensAdded ? `+${tokensAdded.toLocaleString()} tokens added.` : "Tokens added."}
         </div>
         <p className="text-[13.5px] text-muted mb-2">
-          Your purchase is confirmed{packId ? ` (${packId} pack)` : ""}.
+          Your purchase is confirmed{packId ? ` (${packId} pack)` : ""}
+          {operator ? ` · paid via ${operatorLabel(operator)}` : ""}.
         </p>
         {balance !== null && balance >= 0 && (
           <p className="text-[13.5px] text-muted mb-6">

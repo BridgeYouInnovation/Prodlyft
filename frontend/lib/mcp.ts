@@ -102,3 +102,43 @@ export function newAppTransactionRef(): string {
     .digest("hex")
     .slice(0, 24)}`;
 }
+
+export interface CheckStatusResult {
+  status: "success";
+  app_transaction_ref: string;
+  operator_transaction_ref?: string;
+  transaction_ref: string;
+  transaction_type: "PAYIN" | "PAYOUT";
+  transaction_amount: number | string;
+  transaction_fees?: number | string;
+  transaction_currency: string;
+  /** MCP | CM_OM | CM_MOMO | CARD — the operator that finally settled the payment. */
+  transaction_operator: string;
+  /** CREATED | PENDING | SUCCESS | CANCELED | FAILED */
+  transaction_status: "CREATED" | "PENDING" | "SUCCESS" | "CANCELED" | "FAILED";
+  transaction_reason?: string;
+  transaction_message?: string;
+  customer_phone_number?: string;
+}
+
+export interface CheckStatusError {
+  status: "error";
+  message: string;
+}
+
+/**
+ * GET /checkStatus/{transaction_ref}. Used as a reconciliation fallback for
+ * payments still 'pending' on our side — MCP only fires the callback once
+ * and never retries, so a missed webhook would otherwise leave the payment
+ * stuck forever.
+ */
+export async function checkStatus(transactionRef: string): Promise<CheckStatusResult | CheckStatusError> {
+  const r = await fetch(`${mcpBase()}/checkStatus/${encodeURIComponent(transactionRef)}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    // Short timeout — this is called from a polling endpoint, must stay snappy.
+    signal: AbortSignal.timeout(8_000),
+  });
+  return (await r.json()) as CheckStatusResult | CheckStatusError;
+}
+
