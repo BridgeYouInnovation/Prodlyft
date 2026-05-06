@@ -6,20 +6,40 @@ import { useSession } from "next-auth/react";
 import { LandingHeader } from "@/components/LandingHeader";
 import { Icons } from "@/components/Icons";
 import {
-  PLANS,
   COUNTRY_OPTIONS,
   currencyFromCountry,
-  formatPrice,
   type Currency,
 } from "@/lib/plans";
 
+interface Pack {
+  id: string;
+  name: string;
+  tokens: number;
+  price_xaf: number;
+  price_usd_cents: number;
+  price_ngn: number;
+  highlight: boolean;
+  sort_order: number;
+}
+
 const PREF_KEY = "prodlyft_country";
-// My-CoolPay always charges in XAF — display currency is informational.
-const MCP_XAF: Record<"pro" | "unlimited", number> = { pro: 10_000, unlimited: 25_000 };
+
+function priceLabel(p: Pack, currency: Currency): string {
+  if (currency === "USD") return `$${(p.price_usd_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (currency === "NGN") return `₦${p.price_ngn.toLocaleString()}`;
+  return `${p.price_xaf.toLocaleString()} FCFA`;
+}
+
+function perTokenLabel(p: Pack, currency: Currency): string {
+  if (currency === "USD") return `$${(p.price_usd_cents / 100 / p.tokens).toFixed(3)} / token`;
+  if (currency === "NGN") return `₦${(p.price_ngn / p.tokens).toFixed(1)} / token`;
+  return `${(p.price_xaf / p.tokens).toFixed(1)} FCFA / token`;
+}
 
 export default function PricingPage() {
   const router = useRouter();
   const { status: authStatus } = useSession();
+  const [packs, setPacks] = useState<Pack[]>([]);
   const [country, setCountry] = useState<string | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -27,24 +47,31 @@ export default function PricingPage() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  async function startCheckout(plan: "pro" | "unlimited") {
+  // Load packs from /api/packs.
+  useEffect(() => {
+    fetch("/api/packs")
+      .then((r) => (r.ok ? r.json() : { packs: [] }))
+      .then((d: { packs?: Pack[] }) => setPacks(d.packs || []))
+      .catch(() => setPacks([]));
+  }, []);
+
+  async function startCheckout(packId: string) {
     setCheckoutError(null);
     if (authStatus !== "authenticated") {
       router.push(`/signin?callbackUrl=${encodeURIComponent("/pricing")}`);
       return;
     }
-    setCheckoutPending(plan);
+    setCheckoutPending(packId);
     try {
       const r = await fetch("/api/payment/paylink", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ pack_id: packId }),
       });
       const data = (await r.json()) as { payment_url?: string; error?: string };
       if (!r.ok || !data.payment_url) {
         throw new Error(data.error || `Checkout failed: ${r.status}`);
       }
-      // Redirect the browser to My-CoolPay's hosted checkout.
       window.location.href = data.payment_url;
     } catch (e) {
       setCheckoutError((e as Error).message);
@@ -61,10 +88,7 @@ export default function PricingPage() {
     return () => window.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Initial resolution:
-  //   1. Saved preference in localStorage (user-chosen)
-  //   2. Server-detected country from Vercel geo header
-  //   3. Fallback: "WW" (International / USD)
+  // Resolve country / currency: localStorage → /api/geo → "WW" fallback.
   useEffect(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem(PREF_KEY) : null;
     if (saved) {
@@ -75,7 +99,6 @@ export default function PricingPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         const c = (d?.country as string | null) || "WW";
-        // Narrow to one of our known options; else "WW"
         const known = COUNTRY_OPTIONS.find((o) => o.code === c);
         const resolved = known ? known.code : "WW";
         setDetected(resolved);
@@ -98,18 +121,12 @@ export default function PricingPage() {
 
   function choose(code: string) {
     setCountry(code);
-    try {
-      localStorage.setItem(PREF_KEY, code);
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem(PREF_KEY, code); } catch { /* ignore */ }
     setMenuOpen(false);
   }
 
   function resetToDetected() {
-    try {
-      localStorage.removeItem(PREF_KEY);
-    } catch { /* ignore */ }
+    try { localStorage.removeItem(PREF_KEY); } catch { /* ignore */ }
     setCountry(detected);
     setMenuOpen(false);
   }
@@ -118,22 +135,20 @@ export default function PricingPage() {
     <div className="min-h-screen bg-bg">
       <LandingHeader />
 
-      <section className="pt-12 md:pt-[72px] px-4 md:px-12 max-w-[1100px] mx-auto">
+      <section className="pt-12 md:pt-[72px] px-4 md:px-12 max-w-[1180px] mx-auto">
         <div className="text-center mb-10 md:mb-14">
           <div className="inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 bg-white border border-line rounded-full text-[11.5px] text-ink-2 mb-5">
-            <span className="chip chip-accent h-[18px]">Pricing</span>
-            Prices shown in{" "}
-            <span className="font-mono font-medium">{currency}</span>
+            <span className="chip chip-accent h-[18px]">Tokens</span>
+            Prices shown in <span className="font-mono font-medium">{currency}</span>
           </div>
           <h1 className="text-[32px] sm:text-[44px] md:text-[52px] font-[560] leading-[1.05] tracking-tight3 mb-3 md:mb-4">
-            Simple pricing.<br className="hidden sm:inline" />
-            <span className="text-muted"> Scale as you grow.</span>
+            Buy tokens.<br className="hidden sm:inline" />
+            <span className="text-muted"> Spend them how you want.</span>
           </h1>
-          <p className="text-[14px] md:text-[16px] text-muted max-w-[520px] mx-auto leading-[1.55] mb-5">
-            Start free, upgrade when you need more. Cancel any time.
+          <p className="text-[14px] md:text-[16px] text-muted max-w-[560px] mx-auto leading-[1.55] mb-5">
+            One balance, every tool. Tokens never expire. Stop worrying about monthly resets.
           </p>
 
-          {/* Country / currency selector */}
           <div className="inline-flex items-center gap-2 text-[12.5px]">
             <span className="text-muted">Showing prices for</span>
             <div ref={menuRef} className="relative">
@@ -184,66 +199,85 @@ export default function PricingPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
-          {PLANS.map((p) => {
-            const price = p.prices[currency];
-            const isFree = p.id === "free";
-            return (
-              <div
-                key={p.id}
-                className="card p-6 flex flex-col relative"
-                style={{
-                  borderColor: p.highlight ? "var(--ink)" : "var(--line)",
-                  boxShadow: p.highlight ? "0 8px 32px -12px rgba(14,14,12,0.16)" : undefined,
-                }}
-              >
-                {p.highlight && (
-                  <span className="absolute -top-2.5 left-6 chip chip-accent">Most popular</span>
-                )}
-                <div className="text-[13px] font-medium text-muted mb-1">{p.name}</div>
-                <div className="text-[13px] text-muted mb-5">{p.tagline}</div>
+        {/* Cost-per-action callout */}
+        <div className="mx-auto max-w-[860px] mb-10 grid grid-cols-2 md:grid-cols-3 gap-3">
+          {[
+            { label: "Product extracted", cost: "1 token" },
+            { label: "Blog post — no image", cost: "5 tokens" },
+            { label: "Blog post + AI image", cost: "10 tokens" },
+          ].map((x) => (
+            <div key={x.label} className="card p-4 text-center">
+              <div className="text-[12.5px] text-muted">{x.label}</div>
+              <div className="text-[16px] font-[560] mt-0.5">{x.cost}</div>
+            </div>
+          ))}
+        </div>
 
-                <div className="flex items-baseline gap-1.5 mb-1">
-                  <div className="text-[40px] md:text-[44px] font-[560] tracking-tight3 leading-none">
-                    {isFree ? "Free" : formatPrice(price, currency)}
-                  </div>
-                  {!isFree && <div className="text-[13px] text-muted">/ month</div>}
-                </div>
-                <div className="text-[12.5px] text-muted mb-6">{p.limitLabel}</div>
-
-                <ul className="flex flex-col gap-2 mb-6">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-[13px]">
-                      <Icons.Check size={14} className="text-accent flex-shrink-0 mt-0.5" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="flex-1" />
-
-                {isFree ? (
-                  <Link href="/signup" className="btn btn-lg justify-center">Start free</Link>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => startCheckout(p.id as "pro" | "unlimited")}
-                      disabled={checkoutPending === p.id}
-                      className={p.highlight ? "btn-primary btn-lg justify-center" : "btn btn-lg justify-center"}
-                    >
-                      {checkoutPending === p.id ? "Redirecting…" : <>{p.ctaLabel} <Icons.ArrowRight size={14} /></>}
-                    </button>
-                    {currency !== "XAF" && (
-                      <div className="text-[11px] text-muted-2 text-center mt-2">
-                        Charged as {MCP_XAF[p.id as "pro" | "unlimited"].toLocaleString()} FCFA via My-CoolPay
-                      </div>
-                    )}
-                  </>
-                )}
+        {/* Pack cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {packs.map((p) => (
+            <div
+              key={p.id}
+              className="card p-6 flex flex-col relative"
+              style={{
+                borderColor: p.highlight ? "var(--ink)" : "var(--line)",
+                boxShadow: p.highlight ? "0 8px 32px -12px rgba(14,14,12,0.16)" : undefined,
+              }}
+            >
+              {p.highlight && (
+                <span className="absolute -top-2.5 left-6 chip chip-accent">Most popular</span>
+              )}
+              <div className="text-[13px] font-medium text-muted mb-1">{p.name}</div>
+              <div className="text-[13px] text-muted mb-5">
+                {p.tokens.toLocaleString()} tokens
               </div>
-            );
-          })}
+
+              <div className="flex items-baseline gap-1.5 mb-1">
+                <div className="text-[34px] md:text-[38px] font-[560] tracking-tight3 leading-none">
+                  {priceLabel(p, currency)}
+                </div>
+              </div>
+              <div className="text-[12px] text-muted-2 mb-5">{perTokenLabel(p, currency)}</div>
+
+              <ul className="flex flex-col gap-1.5 mb-6 text-[12.5px] text-muted">
+                <li className="flex items-start gap-1.5">
+                  <Icons.Check size={13} className="text-accent flex-shrink-0 mt-[3px]" />
+                  <span><span className="text-ink">{p.tokens.toLocaleString()}</span> products extracted</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <Icons.Check size={13} className="text-accent flex-shrink-0 mt-[3px]" />
+                  <span><span className="text-ink">{Math.floor(p.tokens / 5).toLocaleString()}</span> blog posts (no image)</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <Icons.Check size={13} className="text-accent flex-shrink-0 mt-[3px]" />
+                  <span><span className="text-ink">{Math.floor(p.tokens / 10).toLocaleString()}</span> blog posts (+ AI image)</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <Icons.Check size={13} className="text-accent flex-shrink-0 mt-[3px]" />
+                  <span>Tokens never expire</span>
+                </li>
+              </ul>
+
+              <div className="flex-1" />
+
+              <button
+                type="button"
+                onClick={() => startCheckout(p.id)}
+                disabled={checkoutPending === p.id}
+                className={p.highlight ? "btn-primary btn-lg justify-center" : "btn btn-lg justify-center"}
+              >
+                {checkoutPending === p.id ? "Redirecting…" : <>Buy {p.name} <Icons.ArrowRight size={14} /></>}
+              </button>
+              {currency !== "XAF" && (
+                <div className="text-[11px] text-muted-2 text-center mt-2">
+                  Charged as {p.price_xaf.toLocaleString()} FCFA via My-CoolPay
+                </div>
+              )}
+            </div>
+          ))}
+          {packs.length === 0 && (
+            <div className="col-span-full text-center text-muted text-[13px] py-10">Loading packs…</div>
+          )}
         </div>
 
         {checkoutError && (
@@ -253,17 +287,16 @@ export default function PricingPage() {
         )}
 
         <div className="mt-10 text-center text-[12.5px] text-muted">
-          Paid plans billed monthly via{" "}
-          <span className="font-medium text-ink">My-CoolPay</span> — mobile money (Orange Money, MTN MoMo) or card.
-          Cancel any time: email{" "}
+          One-time purchases via <span className="font-medium text-ink">My-CoolPay</span> — mobile money (Orange Money, MTN MoMo) or card.
+          Need an invoice or refund? Email{" "}
           <a className="text-ink font-medium hover:underline" href="mailto:prodlyft@gmail.com">prodlyft@gmail.com</a>.
         </div>
 
         <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
           {[
-            { q: "What counts as a product?", a: "Every product row we save from your extracts — whether from a Shopify /products.json, a WooCommerce store API, or a single product page scraped by the AI." },
-            { q: "How does the 30-day Pro cycle work?", a: "It's a rolling window — each period starts when you first use it and resets 30 days later. You get a fresh 10,000 products each time." },
-            { q: "Can I cancel or downgrade?", a: "Yes. Email us and we'll downgrade at the end of your current period so you keep what you paid for." },
+            { q: "Do tokens expire?", a: "Never. Buy a pack today, spend it next year — no monthly resets, no clawbacks." },
+            { q: "What if my extract runs out mid-job?", a: "We stop saving more products and keep what we already saved. Top up and start a new extract for the rest." },
+            { q: "Can I get a refund on unused tokens?", a: "Email us within 14 days of purchase if you haven't used the tokens. We'll refund the unused portion to your original payment method." },
           ].map((x) => (
             <div key={x.q} className="card p-5">
               <div className="text-[14px] font-[560] mb-1.5">{x.q}</div>

@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool, findUserById } from "@/lib/db";
-import { createPaylink, MCP_XAF_PRICES, newAppTransactionRef } from "@/lib/mcp";
+import { createPaylink, newAppTransactionRef } from "@/lib/mcp";
+import { getPack } from "@/lib/tokens";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/payment/paylink — create a My-CoolPay payment link for the
- * authenticated user upgrading to Pro or Unlimited. Returns the hosted
- * checkout URL; the client redirects the browser there.
+ * authenticated user buying a token pack. Returns the hosted checkout URL;
+ * the client redirects the browser there. The webhook
+ * (/api/payment/callback/[secret]) credits the tokens once MCP confirms.
+ *
+ * Body: { pack_id: "starter" | "creator" | "business" | "scale" }
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -17,19 +21,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
 
-  let body: { plan?: string } = {};
+  let body: { pack_id?: string } = {};
   try {
-    body = (await req.json()) as { plan?: string };
+    body = (await req.json()) as { pack_id?: string };
   } catch { /* allow empty body */ }
 
-  const plan = (body.plan || "").toLowerCase();
-  if (plan !== "pro" && plan !== "unlimited") {
-    return NextResponse.json({ error: "plan must be 'pro' or 'unlimited'" }, { status: 400 });
+  const packId = (body.pack_id || "").toLowerCase().trim();
+  if (!packId) {
+    return NextResponse.json({ error: "pack_id is required" }, { status: 400 });
   }
 
-  const amount = MCP_XAF_PRICES[plan];
-  if (!amount) {
-    return NextResponse.json({ error: "Price not configured for that plan" }, { status: 400 });
+  const pack = await getPack(packId);
+  if (!pack) {
+    return NextResponse.json({ error: "Unknown or disabled pack" }, { status: 400 });
   }
 
   const user = await findUserById(userId);
@@ -37,18 +41,18 @@ export async function POST(req: NextRequest) {
 
   const appRef = newAppTransactionRef();
 
-  // Store the intent before hitting MCP — if MCP fails we still have a
-  // record we can investigate from the admin side.
+  // Persist intent before hitting MCP. We store the pack id in the legacy
+  // `plan` column for now — same shape, different meaning.
   await pool.query(
     `INSERT INTO payments (id, user_id, plan, amount, currency, app_transaction_ref, status)
      VALUES ($1, $2, $3, $4, 'XAF', $5, 'created')`,
-    [appRef, userId, plan, amount, appRef],
+    [appRef, userId, packId, pack.price_xaf, appRef],
   );
 
   const result = await createPaylink({
-    transaction_amount: amount,
+    transaction_amount: pack.price_xaf,
     transaction_currency: "XAF",
-    transaction_reason: `Prodlyft ${plan === "pro" ? "Pro" : "Unlimited"} — monthly`,
+    transaction_reason: `Prodlyft — ${pack.name} (${pack.tokens.toLocaleString()} tokens)`,
     app_transaction_ref: appRef,
     customer_email: user.email,
     customer_name: user.name || undefined,
@@ -77,5 +81,6 @@ export async function POST(req: NextRequest) {
     payment_url: result.payment_url,
     transaction_ref: result.transaction_ref,
     app_transaction_ref: appRef,
+    pack: { id: pack.id, name: pack.name, tokens: pack.tokens },
   });
 }

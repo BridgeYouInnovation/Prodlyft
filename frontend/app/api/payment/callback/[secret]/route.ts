@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { verifyCallbackSignature, type CallbackPayload } from "@/lib/mcp";
+import { creditTokens, getPack } from "@/lib/tokens";
 
 export const runtime = "nodejs";
 
@@ -10,12 +11,6 @@ function pickRemoteIp(req: NextRequest): string | null {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) return xf.split(",")[0].trim();
   return req.headers.get("x-real-ip") ?? null;
-}
-
-function planForAmount(amount: number): "pro" | "unlimited" | null {
-  if (amount === 10_000) return "pro";
-  if (amount === 25_000) return "unlimited";
-  return null;
 }
 
 /**
@@ -95,22 +90,45 @@ export async function POST(
     [internalStatus, payload.transaction_ref, JSON.stringify({ ...payload, _ip: sourceIp, _ip_ok: ipOk }), appRef],
   );
 
-  // Only activate the plan on SUCCESS, and only if we haven't already (don't
-  // re-credit if MCP somehow re-delivers).
+  // Credit tokens on SUCCESS. The (reason='purchase', ref_id=appRef) unique
+  // index in token_ledger guarantees we never double-credit even if MCP
+  // somehow re-delivers — but we also gate on `row.status !== 'success'` for
+  // a fast no-op on the second hit.
   if (internalStatus === "success" && row.status !== "success") {
-    // Double-check amount matches a known plan so a tampered payload can't
-    // promote someone to Unlimited with a cheaper charge.
-    const expectedPlan = planForAmount(Number(payload.transaction_amount));
-    const plan = expectedPlan ?? row.plan;
-    await pool.query(
-      `UPDATE users
-          SET plan = $1,
-              plan_period_start = NOW(),
-              products_used_in_period = 0
-        WHERE id = $2`,
-      [plan, row.user_id],
-    );
-    console.log("[mcp.callback] upgraded user", { user_id: row.user_id, plan, appRef });
+    // Resolve pack by id, then sanity-check the paid amount matches the
+    // pack's listed XAF price. A tampered payload claiming SUCCESS for a
+    // smaller charge wouldn't pass MCP's signature, but defence-in-depth.
+    const pack = await getPack(row.plan);
+    const paid = Number(payload.transaction_amount);
+    if (!pack) {
+      console.error("[mcp.callback] success for unknown pack", { pack_id: row.plan, appRef });
+    } else if (paid !== pack.price_xaf) {
+      console.error("[mcp.callback] amount mismatch — refusing to credit", {
+        pack_id: pack.id, expected_xaf: pack.price_xaf, paid_xaf: paid, appRef,
+      });
+    } else {
+      try {
+        const newBalance = await creditTokens(row.user_id, pack.tokens, "purchase", {
+          ref_type: "payment",
+          ref_id: appRef,
+          meta: {
+            pack_id: pack.id,
+            pack_name: pack.name,
+            xaf: pack.price_xaf,
+            mcp_ref: payload.transaction_ref,
+          },
+        });
+        console.log("[mcp.callback] credited tokens", {
+          user_id: row.user_id,
+          pack_id: pack.id,
+          tokens: pack.tokens,
+          new_balance: newBalance,
+          appRef,
+        });
+      } catch (e) {
+        console.error("[mcp.callback] credit failed", e);
+      }
+    }
   }
 
   return new NextResponse("OK", { status: 200 });

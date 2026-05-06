@@ -22,12 +22,14 @@ export default function SuccessPage() {
 
 function SuccessBody() {
   const search = useSearchParams();
-  // MCP echoes any query params we passed on the paylink creation into the
+  // MCP echoes any query params we passed on paylink creation into the
   // success URL. We include `app_ref` so we can look up the payment.
   const ref = search.get("app_ref");
 
   const [status, setStatus] = useState<PaymentStatus | "unknown">("unknown");
-  const [plan, setPlan] = useState<string | null>(null);
+  const [packId, setPackId] = useState<string | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [tokensAdded, setTokensAdded] = useState<number | null>(null);
 
   useEffect(() => {
     if (!ref) { setStatus("unknown"); return; }
@@ -41,9 +43,23 @@ function SuccessBody() {
         const d = (await r.json()) as { status: PaymentStatus; plan: string };
         if (!alive) return;
         setStatus(d.status);
-        setPlan(d.plan);
-        // MCP usually delivers the callback seconds after the payer confirms.
-        // Keep polling up to ~60s in case the webhook is in flight.
+        setPackId(d.plan);
+
+        if (d.status === "success") {
+          // Surface "+N tokens" + new balance on the success card.
+          try {
+            const [pr, mr] = await Promise.all([
+              fetch("/api/packs").then((x) => x.json()),
+              fetch("/api/me").then((x) => x.json()),
+            ]);
+            const packs = (pr?.packs || []) as { id: string; tokens: number }[];
+            const pack = packs.find((p) => p.id === d.plan);
+            if (pack) setTokensAdded(pack.tokens);
+            const tokens = mr?.tokens?.balance;
+            if (typeof tokens === "number") setBalance(tokens);
+          } catch { /* non-fatal */ }
+        }
+
         if (d.status !== "success" && d.status !== "failed" && d.status !== "canceled" && tries < 30) {
           setTimeout(tick, 2000);
         }
@@ -58,7 +74,7 @@ function SuccessBody() {
       <div className="max-w-[480px] mx-auto text-center">
         <div className="text-[20px] font-[560] tracking-tight2 mb-2">Payment received</div>
         <p className="text-[13.5px] text-muted mb-6">
-          Thanks! If your plan doesn't reflect the change in a minute, email{" "}
+          Thanks! If your token balance doesn't reflect the change in a minute, email{" "}
           <a className="underline" href="mailto:prodlyft@gmail.com">prodlyft@gmail.com</a>.
         </p>
         <Link href="/dashboard" className="btn-primary btn-lg">Go to dashboard</Link>
@@ -73,11 +89,16 @@ function SuccessBody() {
           <Icons.Check size={22} />
         </div>
         <div className="text-[22px] md:text-[26px] font-[560] tracking-tight2 mb-2">
-          You're on {plan === "unlimited" ? "Unlimited" : "Pro"}.
+          {tokensAdded ? `+${tokensAdded.toLocaleString()} tokens added.` : "Tokens added."}
         </div>
-        <p className="text-[13.5px] text-muted mb-6">
-          Your plan is active — fresh quota starts now.
+        <p className="text-[13.5px] text-muted mb-2">
+          Your purchase is confirmed{packId ? ` (${packId} pack)` : ""}.
         </p>
+        {balance !== null && balance >= 0 && (
+          <p className="text-[13.5px] text-muted mb-6">
+            New balance: <span className="text-ink font-medium">{balance.toLocaleString()} tokens</span>
+          </p>
+        )}
         <Link href="/dashboard" className="btn-primary btn-lg">Go to dashboard <Icons.ArrowRight size={14}/></Link>
       </div>
     );
