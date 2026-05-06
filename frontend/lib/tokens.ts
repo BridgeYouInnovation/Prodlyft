@@ -20,6 +20,84 @@ export const TOKEN_COSTS = {
 
 export const SIGNUP_BONUS = 10;
 
+/**
+ * Idempotent schema bootstrap. Runs once per Node process so Vercel doesn't
+ * have to wait for Railway's init_db() to provision the token tables —
+ * either side can be the first to bring them up. Safe to call repeatedly.
+ */
+let schemaReady: Promise<void> | null = null;
+
+async function ensureTokenSchema(): Promise<void> {
+  if (schemaReady) return schemaReady;
+  schemaReady = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS token_balances (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        balance INTEGER NOT NULL DEFAULT 0,
+        total_purchased INTEGER NOT NULL DEFAULT 0,
+        total_consumed INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS token_ledger (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        delta INTEGER NOT NULL,
+        reason VARCHAR(40) NOT NULL,
+        ref_type VARCHAR(30),
+        ref_id TEXT,
+        meta JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_token_ledger_user
+        ON token_ledger(user_id, created_at DESC);
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_token_ledger_credit_ref
+        ON token_ledger(reason, ref_id)
+        WHERE reason IN ('purchase', 'signup_bonus', 'migration');
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS token_packs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        tokens INTEGER NOT NULL,
+        price_xaf INTEGER NOT NULL,
+        price_usd_cents INTEGER NOT NULL,
+        price_ngn INTEGER NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        highlight BOOLEAN NOT NULL DEFAULT FALSE,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    await pool.query(`
+      INSERT INTO token_packs (id, name, tokens, price_xaf, price_usd_cents, price_ngn, highlight, sort_order)
+      VALUES
+        ('starter',  'Starter',  100,    3000,    500, 7500,   FALSE, 1),
+        ('creator',  'Creator',  1000,  17500,   2900, 44000,  TRUE,  2),
+        ('business', 'Business', 5000,  60000,   9900, 150000, FALSE, 3),
+        ('scale',    'Scale',    25000, 240000, 39900, 600000, FALSE, 4)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    // User columns that signup uses for abuse tracking. Cheap no-op when
+    // Railway already added them.
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_ip VARCHAR(64);
+    `);
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_bonus_granted BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+  })().catch((e) => {
+    // Don't latch a failed promise — let the next call retry.
+    schemaReady = null;
+    throw e;
+  });
+  return schemaReady;
+}
+
 export type LedgerReason =
   | "signup_bonus"
   | "migration"
@@ -43,6 +121,7 @@ export interface TokenPack {
 }
 
 export async function listPacks(): Promise<TokenPack[]> {
+  await ensureTokenSchema();
   const r = await pool.query<TokenPack>(
     `SELECT id, name, tokens, price_xaf, price_usd_cents, price_ngn,
             enabled, highlight, sort_order
@@ -54,6 +133,7 @@ export async function listPacks(): Promise<TokenPack[]> {
 }
 
 export async function getPack(packId: string): Promise<TokenPack | null> {
+  await ensureTokenSchema();
   const r = await pool.query<TokenPack>(
     `SELECT id, name, tokens, price_xaf, price_usd_cents, price_ngn,
             enabled, highlight, sort_order
@@ -82,6 +162,7 @@ async function isAdmin(userId: number): Promise<boolean> {
 }
 
 export async function getBalance(userId: number): Promise<BalanceSummary> {
+  await ensureTokenSchema();
   const admin = await isAdmin(userId);
   const r = await pool.query<{
     balance: number; total_purchased: number; total_consumed: number;
@@ -117,6 +198,7 @@ export async function creditTokens(
   opts: MutateOpts = {},
 ): Promise<number> {
   if (amount <= 0) throw new Error("credit amount must be > 0");
+  await ensureTokenSchema();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -192,6 +274,7 @@ export async function tryDebitTokens(
   opts: MutateOpts = {},
 ): Promise<{ ok: boolean; balance: number }> {
   if (amount <= 0) return { ok: true, balance: (await getBalance(userId)).balance };
+  await ensureTokenSchema();
   if (await isAdmin(userId)) return { ok: true, balance: -1 };
 
   const client = await pool.connect();
@@ -248,6 +331,7 @@ export interface LedgerRow {
 }
 
 export async function listLedger(userId: number, limit = 50): Promise<LedgerRow[]> {
+  await ensureTokenSchema();
   const r = await pool.query<LedgerRow>(
     `SELECT id::text, delta, reason, ref_type, ref_id, meta, created_at
        FROM token_ledger
