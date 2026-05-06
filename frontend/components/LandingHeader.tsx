@@ -5,11 +5,11 @@ import { useSession, signOut } from "next-auth/react";
 import { BrandMark } from "./BrandMark";
 import { Icons } from "./Icons";
 
+// Secondary tools shown in the "Tools" dropdown. Primary tools (Product
+// Extractor, Auto Blogger) live as top-level menu items.
 const tools = [
-  { name: "Product Catalog Extractor", desc: "Pull full Shopify & WooCommerce catalogs.", href: "/", live: true },
   { name: "WP Theme Detector", desc: "Detect the theme and plugins behind any WordPress site.", href: "/tools/wp-detector", live: true },
   { name: "Store Platform Checker", desc: "Identify whether a URL runs Shopify, Woo, or something else.", href: "/tools/platform-checker", live: true },
-  { name: "Auto Blogger", desc: "Generate WordPress blog posts with AI and publish them in one click.", href: "/blogger", live: true },
 ];
 
 export function LandingHeader() {
@@ -39,6 +39,9 @@ export function LandingHeader() {
 
       {/* Desktop nav */}
       <nav className="hidden lg:flex items-center gap-5 ml-10 text-[13px] text-muted">
+        <Link href="/" className="hover:text-ink transition-colors">Product Extractor</Link>
+        <Link href="/blogger" className="hover:text-ink transition-colors">Auto Blogger</Link>
+        <Link href="/pricing" className="hover:text-ink transition-colors">Pricing</Link>
         <div ref={toolsRef} className="relative">
           <button
             onClick={() => setToolsOpen((o) => !o)}
@@ -68,9 +71,6 @@ export function LandingHeader() {
             </div>
           )}
         </div>
-        <Link href="/pricing" className="hover:text-ink transition-colors">Pricing</Link>
-        <Link href="#docs" className="hover:text-ink transition-colors">Docs</Link>
-        <Link href="#changelog" className="hover:text-ink transition-colors">Changelog</Link>
       </nav>
 
       <div className="flex-1" />
@@ -141,6 +141,10 @@ export function LandingHeader() {
       {menuOpen && (
         <div className="lg:hidden fixed inset-x-0 top-[60px] bottom-0 bg-black/40 z-40" onClick={() => setMenuOpen(false)}>
           <div className="bg-white mx-4 mt-3 rounded-lg p-4 border border-line" onClick={(e) => e.stopPropagation()}>
+            <Link href="/" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink font-medium">Product Extractor</Link>
+            <Link href="/blogger" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink font-medium">Auto Blogger</Link>
+            <Link href="/pricing" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink font-medium">Pricing</Link>
+            <div className="my-3 border-t border-line-2" />
             <div className="text-[11px] font-mono text-muted uppercase tracking-wider mb-2">Tools</div>
             {tools.map((t) => (
               <Link
@@ -152,10 +156,6 @@ export function LandingHeader() {
                 {t.name} {!t.live && <span className="chip chip-ghost text-[10px] ml-1">Soon</span>}
               </Link>
             ))}
-            <div className="my-3 border-t border-line-2" />
-            <Link href="/pricing" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Pricing</Link>
-            <Link href="#docs" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Docs</Link>
-            <Link href="#changelog" onClick={() => setMenuOpen(false)} className="block py-2 text-[13px] text-ink">Changelog</Link>
           </div>
         </div>
       )}
