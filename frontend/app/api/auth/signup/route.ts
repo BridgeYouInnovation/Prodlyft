@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { findUserByEmail, createUser } from "@/lib/db";
+import { findUserByEmail, createUser, pool } from "@/lib/db";
+import { creditTokens, SIGNUP_BONUS } from "@/lib/tokens";
+import { decideSignupBonus, pickClientIp } from "@/lib/abuse";
 
 export const runtime = "nodejs";
 
@@ -36,8 +38,44 @@ export async function POST(req: NextRequest) {
     }
     const hash = await bcrypt.hash(pw, 10);
     const displayName = typeof name === "string" && name.trim() ? name.trim() : null;
-    await createUser(emailNorm, hash, displayName);
-    return NextResponse.json({ ok: true });
+    const user = await createUser(emailNorm, hash, displayName);
+
+    // Record the signup IP and decide whether this account earns the
+    // 10-token welcome bonus. Account creation always succeeds; the bonus
+    // is what we gate on, so legit users with throwaway domains can still
+    // sign in and just need to top up to start.
+    const ip = pickClientIp(req);
+    if (ip) {
+      try {
+        await pool.query(
+          "UPDATE users SET signup_ip = $1 WHERE id = $2",
+          [ip, user.id],
+        );
+      } catch (e) {
+        console.warn("[signup] could not persist signup_ip:", e);
+      }
+    }
+
+    const decision = await decideSignupBonus(emailNorm, ip);
+    if (decision.grant) {
+      try {
+        await creditTokens(user.id, SIGNUP_BONUS, "signup_bonus", {
+          ref_type: "user",
+          ref_id: String(user.id),
+          meta: { ip },
+        });
+        await pool.query(
+          "UPDATE users SET signup_bonus_granted = TRUE WHERE id = $1",
+          [user.id],
+        );
+      } catch (e) {
+        console.error("[signup] bonus credit failed:", e);
+      }
+    } else {
+      console.log("[signup] bonus declined", { email: emailNorm, ip, reason: decision.reason });
+    }
+
+    return NextResponse.json({ ok: true, bonus_granted: decision.grant });
   } catch (e) {
     console.error("[signup] DB error:", e);
     const msg = e instanceof Error ? e.message : String(e);
