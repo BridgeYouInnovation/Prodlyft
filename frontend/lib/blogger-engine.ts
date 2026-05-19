@@ -109,18 +109,44 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
 }
 
 /**
- * Returns a public URL for the generated featured image (DALL·E 3 returns a
- * 1-hour signed URL — plenty for the WP plugin to sideload from). Returns
- * null if OPENAI_API_KEY isn't configured (image gen silently skipped).
+ * Returns a public URL for the generated featured image. Returns null if
+ * OPENAI_API_KEY isn't configured OR the image API errors (article still
+ * publishes without an image; cost falls back to the 5-token rate).
+ *
+ * The model is configurable via OPENAI_IMAGE_MODEL because OpenAI has been
+ * deprecating dall-e-3 in favor of gpt-image-1 for new accounts. Default
+ * stays dall-e-3 for back-compat — accounts that still have it work
+ * unchanged, accounts that don't can flip the env var to gpt-image-1.
+ *
+ * `size`/`quality`/`response_format` accepted by dall-e-3 differ slightly
+ * from gpt-image-1, so when we detect a non-dall-e model we drop those
+ * fields and let OpenAI pick defaults.
  */
 export async function generateImage(opts: { title: string; topic: string }): Promise<{ url: string; prompt: string } | null> {
   const key = envOpenAIKey();
   if (!key) return null;
 
+  const model = process.env.OPENAI_IMAGE_MODEL || "dall-e-3";
+  const isDallE = model.startsWith("dall-e");
+
   const prompt =
     `Photographic featured image for a blog post titled "${opts.title}". ` +
     `Subject relates to: ${opts.topic}. ` +
     "Wide 16:9 composition, natural lighting, magazine-quality. No text or logos overlaid.";
+
+  // dall-e-3 wants size/quality/response_format. gpt-image-1 takes them too
+  // but with different valid values; safest cross-model body is just
+  // {model, prompt, n}. We pass the dall-e-3 extras only when on dall-e.
+  const body: Record<string, unknown> = {
+    model,
+    prompt,
+    n: 1,
+  };
+  if (isDallE) {
+    body.size = "1792x1024";
+    body.quality = "standard";
+    body.response_format = "url";
+  }
 
   const r = await fetch(OPENAI_IMAGE_URL, {
     method: "POST",
@@ -128,14 +154,7 @@ export async function generateImage(opts: { title: string; topic: string }): Pro
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: "dall-e-3",
-      prompt,
-      size: "1792x1024",
-      quality: "standard",
-      response_format: "url",
-      n: 1,
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   });
   if (!r.ok) {

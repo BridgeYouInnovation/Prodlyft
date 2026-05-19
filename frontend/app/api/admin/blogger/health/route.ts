@@ -78,6 +78,12 @@ async function checkOpenAI(): Promise<CheckResult> {
       detail: "OPENAI_API_KEY not set — articles with image=true will publish without a featured image",
     };
   }
+  const configured = process.env.OPENAI_IMAGE_MODEL || "dall-e-3";
+  // Probe every known image model so the operator can see which ones the
+  // account has access to. OpenAI's /v1/models lists ALL accessible
+  // models including image ones; an account that's been migrated off
+  // dall-e-3 will only show gpt-image-1 here.
+  const CANDIDATES = ["dall-e-3", "dall-e-2", "gpt-image-1"];
   try {
     const { value: r, ms } = await timed(() => fetch("https://api.openai.com/v1/models", {
       headers: { Authorization: `Bearer ${key}` },
@@ -88,13 +94,23 @@ async function checkOpenAI(): Promise<CheckResult> {
       return { name: "OpenAI (images)", ok: false, detail: `HTTP ${r.status}: ${body.slice(0, 200)}`, ms };
     }
     const data = (await r.json()) as { data?: { id: string }[] };
-    const hasDallE = (data.data || []).some((m) => m.id === "dall-e-3");
+    const available = CANDIDATES.filter((id) => (data.data || []).some((m) => m.id === id));
+    const configuredOk = available.includes(configured);
+
+    if (configuredOk) {
+      return {
+        name: "OpenAI (images)",
+        ok: true,
+        detail: `using ${configured} · also available: ${available.filter((a) => a !== configured).join(", ") || "(none)"}`,
+        ms,
+      };
+    }
     return {
       name: "OpenAI (images)",
-      ok: true,
-      detail: hasDallE
-        ? `key valid, dall-e-3 available (${(data.data || []).length} models)`
-        : `key valid but dall-e-3 NOT in model list — image gen may fail`,
+      ok: false,
+      detail: available.length > 0
+        ? `OPENAI_IMAGE_MODEL=${configured} not in your account. Available: ${available.join(", ")}. Set OPENAI_IMAGE_MODEL=${available[0]} on Vercel.`
+        : `No image models available on this OpenAI account — enable Images in platform.openai.com/usage/dashboard. Articles will publish without featured images.`,
       ms,
     };
   } catch (e) {
