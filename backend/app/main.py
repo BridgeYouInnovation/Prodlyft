@@ -1,4 +1,8 @@
+import asyncio
+import re
+import time
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -15,9 +19,50 @@ from .schemas import (
 )
 
 
+def _redact_db_url(url: str) -> str:
+    """Drop the password from a postgres URL so we can log it safely."""
+    return re.sub(r"(://[^:/@]+):([^@]+)@", r"\1:***@", url or "")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # Railway starts services in parallel — Postgres can take 30-60s to be
+    # reachable after the API container starts. Without retries the first
+    # init_db() call crashes the whole process and Railway flags the deploy
+    # as failed, even though Postgres would have come up seconds later.
+    s = get_settings()
+    print(f"[startup] DATABASE_URL → {_redact_db_url(s.database_url)}", flush=True)
+    if "localhost" in s.database_url or "127.0.0.1" in s.database_url:
+        print(
+            "[startup] WARNING: DATABASE_URL points at localhost — on Railway "
+            "set DATABASE_URL=${{Postgres.DATABASE_URL}} so it resolves to "
+            "the managed Postgres service.",
+            flush=True,
+        )
+
+    delays = [2, 4, 8, 16, 30, 30, 30, 30, 30, 30]  # ~3 min total
+    last_err: Exception | None = None
+    for attempt, delay in enumerate(delays, start=1):
+        try:
+            t0 = time.monotonic()
+            init_db()
+            print(f"[startup] init_db OK in {time.monotonic() - t0:.2f}s", flush=True)
+            break
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            msg = str(e).splitlines()[-1][:240]
+            print(
+                f"[startup] init_db attempt {attempt}/{len(delays)} failed: {msg}",
+                flush=True,
+            )
+            if attempt < len(delays):
+                await asyncio.sleep(delay)
+    else:
+        # All retries exhausted — re-raise so Railway sees the deploy as
+        # failed and we know to look at the env vars.
+        if last_err:
+            raise last_err
+
     yield
 
 
