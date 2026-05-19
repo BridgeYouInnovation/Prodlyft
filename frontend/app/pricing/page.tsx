@@ -286,12 +286,6 @@ export default function PricingPage() {
           </div>
         )}
 
-        <div className="mt-10 text-center text-[12.5px] text-muted">
-          One-time purchases via <span className="font-medium text-ink">My-CoolPay</span> — mobile money (Orange Money, MTN MoMo) or card.
-          Need an invoice or refund? Email{" "}
-          <a className="text-ink font-medium hover:underline" href="mailto:prodlyft@gmail.com">prodlyft@gmail.com</a>.
-        </div>
-
         <div className="mt-16 md:mt-20 grid grid-cols-1 md:grid-cols-3 gap-3 text-left">
           {[
             { q: "Do tokens expire?", a: "Never. Buy a pack today, spend it next year — no monthly resets, no clawbacks." },
