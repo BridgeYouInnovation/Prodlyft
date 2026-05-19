@@ -21,7 +21,7 @@ export default function NewSchedulePage() {
   const [topicsText, setTopicsText] = useState("");
   const [tone, setTone] = useState("");
   const [length, setLength] = useState<LengthTarget>("medium");
-  const [cadence, setCadence] = useState<Cadence>("weekly");
+  const [cadence, setCadence] = useState<Cadence>("24h");
   const [publish, setPublish] = useState<PublishStatus>("draft");
   const [withImage, setWithImage] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -127,7 +127,7 @@ export default function NewSchedulePage() {
                 <div>
                   <label className="label">Cadence</label>
                   <select className="input" value={cadence} onChange={(e) => setCadence(e.target.value as Cadence)}>
-                    {(["hourly", "daily", "weekly", "monthly"] as Cadence[]).map((c) => (
+                    {(["10min", "30min", "1h", "2h", "5h", "12h", "24h", "48h"] as Cadence[]).map((c) => (
                       <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
                     ))}
                   </select>

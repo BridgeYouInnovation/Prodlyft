@@ -338,22 +338,35 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
   }
 }
 
-export function computeNextRun(cadence: string, from: Date = new Date()): Date {
-  const d = new Date(from);
-  switch ((cadence || "weekly").toLowerCase()) {
-    case "hourly":
-      d.setUTCHours(d.getUTCHours() + 1);
-      break;
-    case "daily":
-      d.setUTCDate(d.getUTCDate() + 1);
-      break;
-    case "monthly":
-      d.setUTCMonth(d.getUTCMonth() + 1);
-      break;
-    case "weekly":
-    default:
-      d.setUTCDate(d.getUTCDate() + 7);
-      break;
+/**
+ * Map any supported cadence string to a "minutes until next run" number.
+ * Returns 0 (caller will use default) if the value is unknown.
+ *
+ * New canonical values: 10min / 30min / 1h / 2h / 5h / 12h / 24h / 48h.
+ * Legacy values (hourly / daily / weekly / monthly) still work so existing
+ * rows in the DB don't break — we just don't offer them in the new form.
+ */
+function cadenceMinutes(cadence: string): number {
+  switch ((cadence || "").toLowerCase()) {
+    // new canonical values
+    case "10min": return 10;
+    case "30min": return 30;
+    case "1h":    return 60;
+    case "2h":    return 120;
+    case "5h":    return 300;
+    case "12h":   return 720;
+    case "24h":   return 1440;
+    case "48h":   return 2880;
+    // legacy values (kept for back-compat)
+    case "hourly":  return 60;
+    case "daily":   return 1440;
+    case "weekly":  return 10080;
+    case "monthly": return 43200; // ~30 days
+    default:        return 0;
   }
-  return d;
+}
+
+export function computeNextRun(cadence: string, from: Date = new Date()): Date {
+  const mins = cadenceMinutes(cadence) || cadenceMinutes("24h");
+  return new Date(from.getTime() + mins * 60_000);
 }

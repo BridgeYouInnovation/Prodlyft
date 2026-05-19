@@ -109,7 +109,7 @@ async function checkCronSecret(): Promise<CheckResult> {
     ok,
     detail: ok
       ? "CRON_SECRET set (Vercel cron will authenticate)"
-      : "CRON_SECRET missing — Vercel's hourly blog-tick cron will return 401",
+      : "CRON_SECRET missing — Vercel's 10-min blog-tick cron will return 401",
   };
 }
 

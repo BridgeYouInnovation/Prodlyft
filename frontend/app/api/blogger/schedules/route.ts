@@ -6,7 +6,12 @@ import type { Cadence, LengthTarget, PublishStatus } from "@/lib/blogger";
 
 export const runtime = "nodejs";
 
-const VALID_CADENCE = new Set<Cadence>(["hourly", "daily", "weekly", "monthly"]);
+// New canonical cadence values plus the legacy ones (back-compat with rows
+// created before this migration). Form only offers the new set.
+const VALID_CADENCE = new Set<string>([
+  "10min", "30min", "1h", "2h", "5h", "12h", "24h", "48h",
+  "hourly", "daily", "weekly", "monthly",
+]);
 const VALID_LENGTH = new Set<LengthTarget>(["short", "medium", "long"]);
 
 function newId(): string {
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
   const topics = Array.isArray(body.topics)
     ? body.topics.map((t) => String(t).trim()).filter(Boolean)
     : [];
-  const cadence = (body.cadence || "weekly") as Cadence;
+  const cadence = (body.cadence || "24h") as Cadence;
   const length = (body.length_target || "medium") as LengthTarget;
   const pub = body.publish_status === "publish" ? "publish" : "draft";
 

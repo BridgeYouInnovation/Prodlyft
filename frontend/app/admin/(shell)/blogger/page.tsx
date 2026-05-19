@@ -313,7 +313,7 @@ export default function AdminBlogger() {
                         <li key={s.id} className="flex items-center gap-1.5">
                           <span className="dot" style={{ color: s.enabled ? "var(--accent)" : "var(--muted-2)" }} />
                           <span className="truncate">{s.name}</span>
-                          <span className="text-muted-2 whitespace-nowrap ml-auto">{CADENCE_LABEL[s.cadence as "weekly"] ?? s.cadence}</span>
+                          <span className="text-muted-2 whitespace-nowrap ml-auto">{(CADENCE_LABEL as Record<string, string>)[s.cadence] ?? s.cadence}</span>
                         </li>
                       ))}
                     </ul>
@@ -479,7 +479,7 @@ export default function AdminBlogger() {
       )}
 
       <div className="mt-6 text-[11.5px] text-muted-2 leading-[1.55]">
-        "Run cron now" hits <span className="font-mono">/api/cron/blog-tick</span> with the server's CRON_SECRET — useful for testing schedules without waiting for the hourly Vercel cron. Pause + Delete on schedules act on any user's data; please use sparingly.
+        "Run cron now" hits <span className="font-mono">/api/cron/blog-tick</span> with the server's CRON_SECRET — useful for testing schedules without waiting for the 10-minute Vercel cron tick. Pause + Delete on schedules act on any user's data; please use sparingly.
       </div>
     </div>
   );
