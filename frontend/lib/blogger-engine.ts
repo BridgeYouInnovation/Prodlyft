@@ -122,7 +122,18 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
  * from gpt-image-1, so when we detect a non-dall-e model we drop those
  * fields and let OpenAI pick defaults.
  */
-export async function generateImage(opts: { title: string; topic: string }): Promise<{ url: string; prompt: string } | null> {
+/**
+ * generateImage result. dall-e-3 returns a 1-hour signed URL; gpt-image-1
+ * returns base64 in the response body, no URL endpoint. Callers handle
+ * both by checking which field is set.
+ */
+export interface GeneratedImage {
+  prompt: string;
+  url?: string;          // dall-e-3 path — fetchable for the next hour
+  b64?: string;          // gpt-image-1 path — raw base64 (no data: prefix)
+}
+
+export async function generateImage(opts: { title: string; topic: string }): Promise<GeneratedImage | null> {
   const key = envOpenAIKey();
   if (!key) return null;
 
@@ -134,9 +145,10 @@ export async function generateImage(opts: { title: string; topic: string }): Pro
     `Subject relates to: ${opts.topic}. ` +
     "Wide 16:9 composition, natural lighting, magazine-quality. No text or logos overlaid.";
 
-  // dall-e-3 wants size/quality/response_format. gpt-image-1 takes them too
-  // but with different valid values; safest cross-model body is just
-  // {model, prompt, n}. We pass the dall-e-3 extras only when on dall-e.
+  // dall-e-3 wants size/quality/response_format. gpt-image-1 takes a
+  // different set (size accepted, no quality, no response_format), so the
+  // safe cross-model body is just {model, prompt, n} with dall-e extras
+  // added only when the model starts with "dall-e".
   const body: Record<string, unknown> = {
     model,
     prompt,
@@ -155,15 +167,17 @@ export async function generateImage(opts: { title: string; topic: string }): Pro
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(120_000),
   });
   if (!r.ok) {
     console.error("[blogger] image gen failed:", r.status, (await r.text()).slice(0, 240));
     return null;
   }
-  const data = (await r.json()) as { data?: { url?: string }[] };
-  const url = data?.data?.[0]?.url;
-  return url ? { url, prompt } : null;
+  const data = (await r.json()) as { data?: { url?: string; b64_json?: string }[] };
+  const first = data?.data?.[0];
+  if (first?.url) return { url: first.url, prompt };
+  if (first?.b64_json) return { b64: first.b64_json, prompt };
+  return null;
 }
 
 interface PostToWpInput {
@@ -280,17 +294,28 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
       [content.title, content.body, content.excerpt, articleId],
     );
 
-    // 5. Optional featured image.
+    // 5. Optional featured image. dall-e-3 hands back a URL we forward
+    //    straight to WordPress. gpt-image-1 returns base64 instead — we
+    //    persist it in image_b64 and forward our own proxy URL so the WP
+    //    plugin (which only knows how to sideload from URLs) can fetch it.
     let imageUrl: string | null = null;
     let imagePrompt: string | null = null;
     if (input.withImage) {
       const img = await generateImage({ title: content.title, topic: input.topic });
-      if (img) {
+      if (img?.url) {
         imageUrl = img.url;
         imagePrompt = img.prompt;
         await pool.query(
           "UPDATE blog_articles SET image_url = $1, image_prompt = $2, updated_at = NOW() WHERE id = $3",
           [imageUrl, imagePrompt, articleId],
+        );
+      } else if (img?.b64) {
+        const base = process.env.PUBLIC_BASE_URL || "https://prodlyft.com";
+        imageUrl = `${base}/api/blogger/image/${articleId}/data`;
+        imagePrompt = img.prompt;
+        await pool.query(
+          "UPDATE blog_articles SET image_url = $1, image_prompt = $2, image_b64 = $3, updated_at = NOW() WHERE id = $4",
+          [imageUrl, imagePrompt, img.b64, articleId],
         );
       }
     }
@@ -308,12 +333,15 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
       tagNames: input.tagNames,
     });
 
+    // Mark posted + replace our proxy URL with WP's permanent media-library
+    // URL. Once WP has the bytes we can drop image_b64 to keep the DB lean.
     await pool.query(
       `UPDATE blog_articles
          SET status = 'posted',
              wp_post_id = $1,
              wp_post_url = $2,
              image_url = COALESCE($3, image_url),
+             image_b64 = NULL,
              updated_at = NOW()
        WHERE id = $4`,
       [posted.wp_post_id, posted.wp_post_url, posted.image_url, articleId],

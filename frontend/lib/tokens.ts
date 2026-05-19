@@ -90,6 +90,12 @@ async function ensureTokenSchema(): Promise<void> {
     await pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_bonus_granted BOOLEAN NOT NULL DEFAULT FALSE;
     `);
+    // gpt-image-1 returns base64; we stash it in blog_articles.image_b64
+    // and serve via /api/blogger/image/[id]/data for the WP sideloader.
+    // Cheap no-op once Railway has added the column.
+    await pool.query(`
+      ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_b64 TEXT;
+    `).catch(() => { /* blog_articles may not exist yet on a fresh DB; backend init_db handles it */ });
   })().catch((e) => {
     // Don't latch a failed promise — let the next call retry.
     schemaReady = null;

@@ -238,6 +238,12 @@ CREATE TABLE IF NOT EXISTS blog_articles (
 CREATE INDEX IF NOT EXISTS idx_blog_articles_user_id ON blog_articles(user_id);
 CREATE INDEX IF NOT EXISTS idx_blog_articles_schedule ON blog_articles(schedule_id);
 
+-- gpt-image-1 returns base64 rather than a fetchable URL; we stash it
+-- here and serve it back via /api/blogger/image/<id>/data so the WP
+-- sideloader has a URL to fetch. Cleared once WordPress responds with
+-- its own media-library URL.
+ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_b64 TEXT;
+
 -- My-CoolPay payments.
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,
