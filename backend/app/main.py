@@ -50,9 +50,17 @@ async def lifespan(app: FastAPI):
             break
         except Exception as e:  # noqa: BLE001
             last_err = e
-            msg = str(e).splitlines()[-1][:240]
+            # SQLAlchemy puts the real error first and the "Background on
+            # this error" link last. Show the first non-empty line so the
+            # log says e.g. `SyntaxError at or near "balance"` instead of
+            # the useless docs URL.
+            full = str(e).strip()
+            first_line = next(
+                (ln for ln in full.splitlines() if ln.strip() and "Background on this error" not in ln),
+                full,
+            )
             print(
-                f"[startup] init_db attempt {attempt}/{len(delays)} failed: {msg}",
+                f"[startup] init_db attempt {attempt}/{len(delays)} failed: {first_line[:280]}",
                 flush=True,
             )
             if attempt < len(delays):

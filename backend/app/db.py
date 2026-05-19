@@ -356,14 +356,28 @@ def _backfill_token_balances() -> None:
             print(f"[backfill_tokens] migrated {len(users)} user(s)", flush=True)
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split a multi-statement SQL block on top-level semicolons, ignoring
+    semicolons that appear inside `--` line comments. A naive `.split(';')`
+    treats `Ledger rows are immutable; balance updates happen` (inside a
+    comment) as a statement boundary and Postgres SyntaxError follows.
+    """
+    cleaned_lines = []
+    for line in sql.splitlines():
+        # Drop everything after the first unquoted `--` on each line.
+        # Our migration SQL doesn't contain quoted `--` so a plain split is fine.
+        comment_at = line.find("--")
+        cleaned_lines.append(line if comment_at < 0 else line[:comment_at])
+    cleaned = "\n".join(cleaned_lines)
+    return [s.strip() for s in cleaned.split(";") if s.strip()]
+
+
 def init_db() -> None:
     from . import models  # noqa: F401
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
-        for stmt in _AUTH_JS_SQL.strip().split(";"):
-            s = stmt.strip()
-            if s:
-                conn.execute(text(s))
+        for stmt in _split_sql_statements(_AUTH_JS_SQL):
+            conn.execute(text(stmt))
     _seed_admin()
     _backfill_token_balances()
 
