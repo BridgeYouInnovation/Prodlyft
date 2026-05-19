@@ -92,6 +92,13 @@ export default function AdminBlogger() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tickResult, setTickResult] = useState<string | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [health, setHealth] = useState<{
+    ok: boolean;
+    summary: string;
+    checks: { name: string; ok: boolean; detail: string; ms?: number }[];
+    checked_at: string;
+  } | null>(null);
 
   async function load() {
     try {
@@ -132,6 +139,24 @@ export default function AdminBlogger() {
     const b = await r.json();
     setTickResult(`HTTP ${b.status}: ${JSON.stringify(b.body).slice(0, 240)}`);
     await load();
+  }
+
+  async function runHealth() {
+    setHealthBusy(true);
+    try {
+      const r = await fetch("/api/admin/blogger/health");
+      const data = (await r.json()) as typeof health;
+      setHealth(data);
+    } catch (e) {
+      setHealth({
+        ok: false,
+        summary: "request failed",
+        checks: [{ name: "Network", ok: false, detail: (e as Error).message }],
+        checked_at: new Date().toISOString(),
+      });
+    } finally {
+      setHealthBusy(false);
+    }
   }
 
   // Group everything by user for the "By user" view.
@@ -175,10 +200,40 @@ export default function AdminBlogger() {
           <p className="text-[13.5px] text-muted">Connections, schedules, and articles across every user.</p>
         </div>
         <div className="sm:flex-1" />
+        <button onClick={runHealth} disabled={healthBusy} className="btn self-start sm:self-auto">
+          <Icons.Sparkle size={12} /> {healthBusy ? "Checking…" : "Health check"}
+        </button>
         <button onClick={runCronNow} className="btn self-start sm:self-auto">
           <Icons.Play size={12} /> Run cron now
         </button>
       </div>
+
+      {health && (
+        <div
+          className="mb-4 p-3 rounded-md border text-[12.5px]"
+          style={{
+            borderColor: health.ok ? "var(--accent)" : "var(--warn)",
+            background: health.ok ? "var(--accent-soft)" : "var(--warn-soft)",
+            color: health.ok ? "var(--accent-ink)" : "var(--warn-ink)",
+          }}
+        >
+          <div className="font-medium mb-1.5">
+            {health.ok ? "All systems go" : "Heads up"} — {health.summary}
+          </div>
+          <ul className="space-y-0.5">
+            {health.checks.map((c) => (
+              <li key={c.name} className="flex gap-2">
+                <span style={{ width: 18, display: "inline-block" }}>{c.ok ? "✓" : "✗"}</span>
+                <span style={{ minWidth: 130 }} className="font-medium">{c.name}</span>
+                <span className="text-muted-2 break-all">{c.detail}{typeof c.ms === "number" ? ` · ${c.ms}ms` : ""}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="text-[10.5px] text-muted-2 mt-1.5">
+            checked {new Date(health.checked_at).toLocaleTimeString()}
+          </div>
+        </div>
+      )}
 
       {tickResult && (
         <div className="mb-4 p-3 rounded-md text-[12.5px] bg-surface2 border border-line font-mono break-all">

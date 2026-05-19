@@ -301,11 +301,19 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
     );
 
     // 7. Charge tokens (only after successful WP post).
+    //    Billing fairness: if the user asked for an image but it failed to
+    //    generate (DALL·E quota / key missing / network), the article shipped
+    //    without one — so we charge the cheaper 5-token rate instead of 10.
     if (!user.is_admin) {
-      const reason = input.withImage ? "blog_post_image" : "blog_post";
-      const { ok, balance } = await tryDebitTokens(input.userId, cost, reason, {
+      const imageDelivered = !!(imageUrl || posted.image_url);
+      const effectiveCost = input.withImage && imageDelivered
+        ? TOKEN_COSTS.BLOG_POST_WITH_IMAGE
+        : TOKEN_COSTS.BLOG_POST;
+      const reason = input.withImage && imageDelivered ? "blog_post_image" : "blog_post";
+      const { ok, balance } = await tryDebitTokens(input.userId, effectiveCost, reason, {
         ref_type: "article",
         ref_id: articleId,
+        meta: { requested_image: input.withImage, image_delivered: imageDelivered },
       });
       if (!ok) {
         // Extremely unlikely (we pre-flighted), but if a concurrent job
@@ -314,7 +322,7 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
         // can reconcile.
         await pool.query(
           "UPDATE blog_articles SET error = $1, updated_at = NOW() WHERE id = $2",
-          [`Posted but couldn't debit ${cost} tokens (balance ${balance}). Manual reconcile.`, articleId],
+          [`Posted but couldn't debit ${effectiveCost} tokens (balance ${balance}). Manual reconcile.`, articleId],
         );
       }
     }
