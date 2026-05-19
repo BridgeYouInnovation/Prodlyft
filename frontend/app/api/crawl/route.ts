@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { findUserById, quotaRemaining } from "@/lib/db";
+import { findUserById } from "@/lib/db";
+import { getBalance } from "@/lib/tokens";
 
 export const runtime = "nodejs";
 
 /**
- * POST /api/crawl — auth-gated proxy. Injects user_id and pre-checks plan
- * quota so free / out-of-quota users get a fast 402 before we spin up the
- * worker. The backend re-enforces caps as defence in depth.
+ * POST /api/crawl — auth-gated proxy to the FastAPI worker. Pre-flights
+ * the caller's token balance so out-of-credit users get a fast 402
+ * before we spin up a worker job. The worker also debits + enforces
+ * tokens per product saved, so this is just a UX shortcut and a hard
+ * upper bound on the requested ceiling.
  */
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -26,30 +29,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // Plan gate.
   const user = await findUserById(userId);
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  const remaining = quotaRemaining(user);
-  if (remaining !== null && remaining <= 0) {
-    const plan = (user.plan || "free").toLowerCase();
-    const msg =
-      plan === "free"
-        ? "You've used all 5 products on the free trial. Upgrade to continue."
-        : "You've hit your 10,000-product monthly cap. Upgrade to Unlimited or wait for your next cycle.";
+  // Token gate. balance === -1 means admin / unlimited.
+  const { balance } = await getBalance(userId);
+  if (balance === 0) {
     return NextResponse.json(
-      { error: msg, code: "quota_exceeded", plan, remaining: 0 },
+      {
+        error: "You're out of tokens. Top up to keep extracting.",
+        code: "no_tokens",
+        balance: 0,
+      },
       { status: 402 },
     );
   }
 
-  // Clamp the requested max down to what's left. The worker will enforce again.
+  // Clamp the requested ceiling to the current balance so we never kick
+  // off a job we know will run out mid-flight. The worker also debits one
+  // token per product saved and stops gracefully if the balance hits 0
+  // during the run.
   const requested = typeof body.max_products === "number" ? body.max_products : null;
-  let effective = requested;
-  if (remaining !== null) {
-    effective = requested == null ? remaining : Math.min(requested, remaining);
+  if (balance > 0) {
+    const effective = requested == null ? balance : Math.min(requested, balance);
+    body.max_products = effective;
   }
-  body.max_products = effective;
   body.user_id = userId;
 
   const apiUrl = process.env.API_URL ?? "http://localhost:8000";

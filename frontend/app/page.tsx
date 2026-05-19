@@ -60,9 +60,9 @@ export default function Landing() {
       router.push(`/crawls/${crawl_id}`);
     } catch (err) {
       const msg = (err as Error).message;
-      // "Crawl failed: 402 {...}" when the proxy rejects over-quota users.
+      // "Crawl failed: 402 {...}" when the proxy rejects out-of-token users.
       if (msg.includes("402")) {
-        setError("You're out of quota on your current plan. Upgrade to continue.");
+        setError("You're out of tokens. Top up to keep extracting.");
       } else {
         setError(msg);
       }
