@@ -6,7 +6,28 @@ from .config import get_settings
 
 settings = get_settings()
 
-engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+
+def _normalize_db_url(url: str) -> str:
+    """Force SQLAlchemy to use psycopg (v3) — the only driver we install.
+
+    Railway's auto-injected DATABASE_URL is `postgresql://…` (no driver
+    hint), which SQLAlchemy defaults to psycopg2. Since requirements.txt
+    only has psycopg v3, that path fails at import with
+    `ModuleNotFoundError: No module named 'psycopg2'`. Rewrite the scheme
+    to `postgresql+psycopg://` so we always land on the installed driver.
+    """
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    return url
+
+
+engine = create_engine(
+    _normalize_db_url(settings.database_url),
+    pool_pre_ping=True,
+    future=True,
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
