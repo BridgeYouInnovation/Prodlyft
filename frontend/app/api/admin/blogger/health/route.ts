@@ -35,7 +35,12 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ value: T; ms: number }>
 async function checkOpenRouter(): Promise<CheckResult> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) return { name: "OpenRouter", ok: false, detail: "OPENROUTER_API_KEY env var is not set" };
-  const model = process.env.OPENROUTER_BLOGGER_MODEL || "anthropic/claude-sonnet-4.5";
+  // Same resolution order as blogger-engine.ts — keep them in sync so the
+  // health check reflects exactly what article generation will use.
+  const model =
+    process.env.OPENROUTER_BLOGGER_MODEL ||
+    process.env.OPENROUTER_MODEL ||
+    "google/gemini-2.5-flash";
   try {
     const { value: r, ms } = await timed(() => fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",

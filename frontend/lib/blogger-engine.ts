@@ -30,7 +30,18 @@ function envOpenAIKey(): string | null {
   return process.env.OPENAI_API_KEY || null;
 }
 
-const ARTICLE_MODEL = process.env.OPENROUTER_BLOGGER_MODEL || "anthropic/claude-sonnet-4.5";
+// Article-writer model. Three sources, most-specific first:
+//   1. OPENROUTER_BLOGGER_MODEL — set this if you want a different model
+//      for blog posts than for the AI scraper / cleanup.
+//   2. OPENROUTER_MODEL — the project-wide default used by the backend
+//      too. Keeping the name in sync means setting it once covers
+//      everything.
+//   3. Hardcoded fallback — gemini-2.5-flash. Fast and cheap; good
+//      enough for medium-length posts.
+const ARTICLE_MODEL =
+  process.env.OPENROUTER_BLOGGER_MODEL ||
+  process.env.OPENROUTER_MODEL ||
+  "google/gemini-2.5-flash";
 
 const SYSTEM_PROMPT = `You are a senior blog writer. Given a topic, tone and target length, you write
 publication-ready blog posts in clean WordPress HTML.
