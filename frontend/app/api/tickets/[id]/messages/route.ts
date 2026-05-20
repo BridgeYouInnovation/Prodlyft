@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
+import { escapeHtml, sendEmail, supportEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -58,5 +59,62 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } finally {
     client.release();
   }
+  // Notify the OTHER side via email. User reply → admin inbox; admin
+  // reply → user's account email. Both are best-effort.
+  try {
+    const inbox = supportEmail();
+    if (!isAdmin && inbox) {
+      // User reply → ping admin. session.user.email is the canonical
+      // source (NextAuth attaches it whenever it's known).
+      const userEmail = (session?.user?.email || "").trim();
+      const origin = req.headers.get("origin") || "https://prodlyft.com";
+      const url = `${origin}/admin/tickets/${id}`;
+      void sendEmail({
+        to: inbox,
+        subject: `[Prodlyft ticket] new reply from ${userEmail || "user"}`,
+        replyTo: userEmail || undefined,
+        text:
+          `New reply on ticket ${id}\n\n` +
+          `From: ${userEmail || "user #" + userId}\n\n` +
+          `${text}\n\n` +
+          `Open: ${url}\n`,
+        html:
+          `<div style="font-family:system-ui,sans-serif;line-height:1.5">` +
+          `<p><strong>New ticket reply</strong> from ` +
+          `${userEmail ? `<a href="mailto:${escapeHtml(userEmail)}">${escapeHtml(userEmail)}</a>` : `user #${userId}`}</p>` +
+          `<blockquote style="border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin:12px 0">${escapeHtml(text)}</blockquote>` +
+          `<p><a href="${escapeHtml(url)}">Open ticket</a></p>` +
+          `</div>`,
+      });
+    } else if (isAdmin) {
+      // Admin reply → ping the user. Look up their email.
+      const ur = await pool.query<{ email: string | null }>(
+        "SELECT email FROM users WHERE id = $1",
+        [t.rows[0].user_id],
+      );
+      const userEmail = ur.rows[0]?.email;
+      if (userEmail) {
+        const origin = req.headers.get("origin") || "https://prodlyft.com";
+        const url = `${origin}/tickets/${id}`;
+        void sendEmail({
+          to: userEmail,
+          subject: "Prodlyft support — new reply on your ticket",
+          text:
+            `We replied to your support ticket.\n\n` +
+            `${text}\n\n` +
+            `View thread: ${url}\n`,
+          html:
+            `<div style="font-family:system-ui,sans-serif;line-height:1.5">` +
+            `<p>We replied to your support ticket.</p>` +
+            `<blockquote style="border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin:12px 0">${escapeHtml(text)}</blockquote>` +
+            `<p><a href="${escapeHtml(url)}">View the full thread on Prodlyft</a></p>` +
+            `</div>`,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("[tickets.message] email notification failed:", (e as Error).message);
+  }
+
   return NextResponse.json({ ok: true }, { status: 201 });
 }

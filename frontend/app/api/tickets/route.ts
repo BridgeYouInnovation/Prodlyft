@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
+import { escapeHtml, sendEmail, supportEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -84,6 +85,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   } finally {
     client.release();
+  }
+
+  // Best-effort admin notification. Failure here doesn't roll back the
+  // ticket — the user shouldn't see "could not open ticket" because our
+  // SMTP creds expired. Errors are logged for the operator to diagnose.
+  const inbox = supportEmail();
+  if (inbox) {
+    const userEmail = (session.user.email || "").trim();
+    const origin = req.headers.get("origin") || "https://prodlyft.com";
+    const ticketUrl = `${origin}/admin/tickets/${ticketId}`;
+    void sendEmail({
+      to: inbox,
+      subject: `[Prodlyft ticket] ${subject}`,
+      replyTo: userEmail || undefined,
+      text:
+        `New support ticket from ${userEmail || "user #" + userId}\n\n` +
+        `Subject: ${subject}\n\n` +
+        `${text}\n\n` +
+        `Open in admin: ${ticketUrl}\n`,
+      html:
+        `<div style="font-family:system-ui,sans-serif;line-height:1.5">` +
+        `<p><strong>New support ticket</strong> from ` +
+        `${userEmail ? `<a href="mailto:${escapeHtml(userEmail)}">${escapeHtml(userEmail)}</a>` : `user #${userId}`}</p>` +
+        `<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>` +
+        `<blockquote style="border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin:12px 0">${escapeHtml(text)}</blockquote>` +
+        `<p><a href="${escapeHtml(ticketUrl)}">Open in admin</a></p>` +
+        `</div>`,
+    });
   }
 
   return NextResponse.json({ id: ticketId }, { status: 201 });
