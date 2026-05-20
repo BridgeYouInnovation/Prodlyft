@@ -55,7 +55,24 @@ export async function GET(req: NextRequest) {
       results.push({ id: sched.id, ok: false, error: "no topics" });
       continue;
     }
-    const idx = ((sched.next_topic_index ?? 0) % topics.length + topics.length) % topics.length;
+    // Schedules now run once per topic and stop. If the cursor has
+    // already walked off the end, mark the schedule completed and skip
+    // the run entirely — this handles edge cases where a tick races
+    // with a topic-list edit that shortens the list below the cursor.
+    const rawIdx = sched.next_topic_index ?? 0;
+    if (rawIdx >= topics.length) {
+      await pool.query(
+        `UPDATE blog_schedules
+            SET enabled = FALSE,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+          WHERE id = $1`,
+        [sched.id],
+      );
+      results.push({ id: sched.id, ok: true, error: "already completed — marked" });
+      continue;
+    }
+    const idx = Math.max(0, rawIdx);
     const topic = String(topics[idx] ?? "").trim();
     if (!topic) {
       results.push({ id: sched.id, ok: false, error: "empty topic" });
@@ -75,17 +92,38 @@ export async function GET(req: NextRequest) {
         categoryIds: sched.default_categories,
         tagNames: sched.default_tags,
       });
-      const nextIdx = (idx + 1) % topics.length;
-      await pool.query(
-        `UPDATE blog_schedules
-            SET next_topic_index = $1,
-                last_run_at = NOW(),
-                next_run_at = $2,
-                updated_at = NOW()
-          WHERE id = $3`,
-        [nextIdx, computeNextRun(sched.cadence), sched.id],
-      );
-      results.push({ id: sched.id, ok: true });
+      const nextIdx = idx + 1;
+      const exhausted = nextIdx >= topics.length;
+      // Two paths:
+      //  - more topics left → advance cursor + next_run_at
+      //  - all topics published → mark completed (enabled=FALSE,
+      //    completed_at=NOW()) so the schedule disappears from the
+      //    cron's WHERE clause and the UI can render a "completed"
+      //    badge instead of "paused"
+      if (exhausted) {
+        await pool.query(
+          `UPDATE blog_schedules
+              SET next_topic_index = $1,
+                  last_run_at = NOW(),
+                  enabled = FALSE,
+                  completed_at = NOW(),
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [nextIdx, sched.id],
+        );
+        results.push({ id: sched.id, ok: true, error: "completed — all topics published" });
+      } else {
+        await pool.query(
+          `UPDATE blog_schedules
+              SET next_topic_index = $1,
+                  last_run_at = NOW(),
+                  next_run_at = $2,
+                  updated_at = NOW()
+            WHERE id = $3`,
+          [nextIdx, computeNextRun(sched.cadence), sched.id],
+        );
+        results.push({ id: sched.id, ok: true });
+      }
     } catch (e) {
       const msg = (e as Error).message || String(e);
       console.error(`[cron] schedule ${sched.id} failed: ${msg}`);

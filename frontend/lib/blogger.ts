@@ -58,6 +58,9 @@ export interface BlogSchedule {
   next_topic_index: number;
   last_run_at: string | null;
   next_run_at: string;
+  /** Set once the schedule has published every topic. enabled also
+   *  flips to false. UI uses this to render "Completed" vs "Paused". */
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }

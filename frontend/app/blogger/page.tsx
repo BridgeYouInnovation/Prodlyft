@@ -67,6 +67,19 @@ export default function BloggerOverview() {
     await load();
   }
 
+  async function restartSchedule(s: ScheduleRow) {
+    if (!confirm(
+      `Restart "${s.name}"? The cursor resets to the first topic and the ` +
+      `schedule starts publishing on the next cron tick.`,
+    )) return;
+    await fetch(`/api/blogger/schedules/${s.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ restart: true }),
+    });
+    await load();
+  }
+
   async function deleteSchedule(s: ScheduleRow) {
     if (!confirm(`Delete schedule "${s.name}"? Past articles stay in your history.`)) return;
     await fetch(`/api/blogger/schedules/${s.id}`, { method: "DELETE" });
@@ -169,22 +182,32 @@ export default function BloggerOverview() {
                 </div>
               ) : (
                 <div className="grid gap-2">
-                  {schedules.map((s) => (
+                  {schedules.map((s) => {
+                    const topicCount = (s.topics || []).length;
+                    const published = Math.min(s.next_topic_index ?? 0, topicCount);
+                    const isCompleted = !!s.completed_at;
+                    return (
                     <div key={s.id} className="card p-4 flex items-start gap-3 flex-wrap">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[14px] font-medium truncate">{s.name}</div>
+                        <div className="text-[14px] font-medium truncate flex items-center gap-2">
+                          {s.name}
+                          {isCompleted && <span className="chip chip-accent text-[10px]">Completed</span>}
+                        </div>
                         <div className="text-[11.5px] text-muted mt-0.5 flex flex-wrap items-center gap-2">
                           <span>{s.site_name || s.site_url}</span>
                           <span>·</span>
                           <span>{CADENCE_LABEL[s.cadence] ?? s.cadence}</span>
                           <span>·</span>
-                          <span>{(s.topics || []).length} topic{(s.topics || []).length === 1 ? "" : "s"}</span>
-                          <span>·</span>
-                          <span>{s.article_count} run{s.article_count === 1 ? "" : "s"}</span>
+                          <span>{published} of {topicCount} topic{topicCount === 1 ? "" : "s"} published</span>
                         </div>
                         <div className="text-[11px] text-muted-2 mt-0.5">
-                          {s.enabled ? <>Next run {untilNext(s.next_run_at)}</> : <em>paused</em>}
-                          {s.last_run_at && <> · last {timeAgo(s.last_run_at)}</>}
+                          {isCompleted ? (
+                            <em>finished{s.last_run_at && <> · last post {timeAgo(s.last_run_at)}</>}</em>
+                          ) : s.enabled ? (
+                            <>Next run {untilNext(s.next_run_at)}{s.last_run_at && <> · last {timeAgo(s.last_run_at)}</>}</>
+                          ) : (
+                            <em>paused{s.last_run_at && <> · last {timeAgo(s.last_run_at)}</>}</em>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -194,13 +217,20 @@ export default function BloggerOverview() {
                         <Link href={`/blogger/schedules/${s.id}/edit`} className="btn-sm">
                           Edit
                         </Link>
-                        <button onClick={() => toggleSchedule(s)} className="btn-sm">
-                          {s.enabled ? "Pause" : "Resume"}
-                        </button>
+                        {isCompleted ? (
+                          <button onClick={() => restartSchedule(s)} className="btn-sm">
+                            Restart
+                          </button>
+                        ) : (
+                          <button onClick={() => toggleSchedule(s)} className="btn-sm">
+                            {s.enabled ? "Pause" : "Resume"}
+                          </button>
+                        )}
                         <button onClick={() => deleteSchedule(s)} className="btn-sm btn-ghost text-danger">Delete</button>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </section>

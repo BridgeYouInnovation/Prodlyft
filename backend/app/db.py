@@ -244,6 +244,12 @@ CREATE INDEX IF NOT EXISTS idx_blog_articles_schedule ON blog_articles(schedule_
 -- its own media-library URL.
 ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_b64 TEXT;
 
+-- Schedules now run once per topic and stop when the list is exhausted
+-- (instead of looping forever). When the last topic publishes, we set
+-- completed_at and flip enabled to FALSE. UI distinguishes "completed"
+-- from "paused" by checking whether this column is NULL.
+ALTER TABLE blog_schedules ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+
 -- My-CoolPay payments.
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,

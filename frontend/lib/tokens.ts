@@ -96,6 +96,9 @@ async function ensureTokenSchema(): Promise<void> {
     await pool.query(`
       ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_b64 TEXT;
     `).catch(() => { /* blog_articles may not exist yet on a fresh DB; backend init_db handles it */ });
+    await pool.query(`
+      ALTER TABLE blog_schedules ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+    `).catch(() => { /* blog_schedules may not exist on a fresh DB */ });
   })().catch((e) => {
     // Don't latch a failed promise — let the next call retry.
     schemaReady = null;

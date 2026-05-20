@@ -11,7 +11,7 @@ export async function GET() {
     `SELECT s.id, s.user_id, u.email AS user_email,
             s.wp_connection_id, c.site_url, c.site_name,
             s.name, s.topics, s.cadence, s.length_target, s.publish_status,
-            s.generate_image, s.enabled, s.next_topic_index,
+            s.generate_image, s.enabled, s.completed_at, s.next_topic_index,
             s.last_run_at, s.next_run_at, s.created_at, s.updated_at,
             (SELECT COUNT(*)::int FROM blog_articles a WHERE a.schedule_id = s.id) AS article_count
      FROM blog_schedules s

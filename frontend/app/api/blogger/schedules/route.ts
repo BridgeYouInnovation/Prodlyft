@@ -132,16 +132,32 @@ export async function POST(req: NextRequest) {
     });
     firstArticleId = out.articleId;
     // Advance the cursor and bump last_run_at so the cron treats this
-    // run as already done.
-    const nextIdx = topics.length > 1 ? 1 : 0;
-    await pool.query(
-      `UPDATE blog_schedules
-          SET next_topic_index = $1,
-              last_run_at = NOW(),
-              updated_at = NOW()
-        WHERE id = $2`,
-      [nextIdx, id],
-    );
+    // run as already done. If the schedule only had ONE topic, we've
+    // just finished the whole list — mark it completed inline so it
+    // doesn't sit "enabled" with nothing left to publish.
+    const nextIdx = 1;
+    const exhausted = nextIdx >= topics.length;
+    if (exhausted) {
+      await pool.query(
+        `UPDATE blog_schedules
+            SET next_topic_index = $1,
+                last_run_at = NOW(),
+                enabled = FALSE,
+                completed_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $2`,
+        [nextIdx, id],
+      );
+    } else {
+      await pool.query(
+        `UPDATE blog_schedules
+            SET next_topic_index = $1,
+                last_run_at = NOW(),
+                updated_at = NOW()
+          WHERE id = $2`,
+        [nextIdx, id],
+      );
+    }
   } catch (e) {
     firstArticleError = (e as Error).message || String(e);
     if (e instanceof InsufficientTokensError) {

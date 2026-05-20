@@ -42,6 +42,8 @@ interface AdminSchedule {
   publish_status: string;
   generate_image: boolean;
   enabled: boolean;
+  completed_at: string | null;
+  next_topic_index: number;
   last_run_at: string | null;
   next_run_at: string;
   created_at: string;
@@ -352,7 +354,7 @@ export default function AdminBlogger() {
                   <th className="hidden sm:table-cell">Cadence</th>
                   <th>Status</th>
                   <th className="hidden md:table-cell">Next run</th>
-                  <th>Articles</th>
+                  <th>Progress</th>
                   <th style={{ width: 1 }}></th>
                 </tr>
               </thead>
@@ -367,22 +369,26 @@ export default function AdminBlogger() {
                     <td className="text-[12.5px] text-muted">{s.user_email}</td>
                     <td className="hidden sm:table-cell capitalize">{s.cadence}</td>
                     <td>
-                      <span className={`chip ${s.enabled ? "chip-accent" : ""}`}>
-                        {s.enabled ? "Active" : "Paused"}
+                      <span className={`chip ${s.completed_at ? "chip-accent" : s.enabled ? "chip-accent" : ""}`}>
+                        {s.completed_at ? "Completed" : s.enabled ? "Active" : "Paused"}
                       </span>
                       <span className={`ml-1 chip ${s.publish_status === "publish" ? "chip-warn" : ""}`}>
                         {s.publish_status === "publish" ? "Auto-publish" : "Draft"}
                       </span>
                     </td>
                     <td className="hidden md:table-cell text-[11.5px] text-muted">
-                      {s.enabled ? untilNext(s.next_run_at) : "—"}
+                      {s.completed_at ? "—" : s.enabled ? untilNext(s.next_run_at) : "—"}
                       {s.last_run_at && <div className="text-[10.5px] text-muted-2">last {timeAgo(s.last_run_at)}</div>}
                     </td>
-                    <td>{s.article_count}</td>
+                    <td>
+                      {Math.min(s.next_topic_index ?? 0, (s.topics || []).length)} / {(s.topics || []).length}
+                    </td>
                     <td className="text-right whitespace-nowrap">
-                      <button className="btn-sm btn-ghost" disabled={busy === s.id} onClick={() => toggleSchedule(s)}>
-                        {s.enabled ? "Pause" : "Resume"}
-                      </button>
+                      {!s.completed_at && (
+                        <button className="btn-sm btn-ghost" disabled={busy === s.id} onClick={() => toggleSchedule(s)}>
+                          {s.enabled ? "Pause" : "Resume"}
+                        </button>
+                      )}
                       <button className="btn-sm btn-ghost text-danger" disabled={busy === s.id} onClick={() => deleteSchedule(s)}>
                         Delete
                       </button>

@@ -53,6 +53,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     sets.push(`topics = $${sets.length + 1}::jsonb`);
     vals.push(JSON.stringify((body.topics as string[]).map(String).filter(Boolean)));
   }
+  // Restart wipes progress + re-enables the schedule. Lets a user
+  // re-run a completed schedule (typically after extending its topic
+  // list) without creating a fresh one. We also kick next_run_at to
+  // NOW() so the next cron tick picks it up immediately rather than
+  // waiting a full cadence interval.
+  if (body.restart === true) {
+    sets.push("next_topic_index = 0");
+    sets.push("completed_at = NULL");
+    sets.push("enabled = TRUE");
+    sets.push("next_run_at = NOW()");
+  }
   if (sets.length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   sets.push("updated_at = NOW()");
   vals.push(id);
