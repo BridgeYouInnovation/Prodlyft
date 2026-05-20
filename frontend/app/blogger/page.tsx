@@ -36,6 +36,80 @@ function untilNext(iso: string | null) {
   return `in ${Math.floor(d / 86400)}d`;
 }
 
+/**
+ * Schedule status indicator — a 36×36 square at the left of each row
+ * that makes the state legible at a glance. Three distinct visuals so
+ * a user can scan the list and immediately see what's live, what's
+ * waiting, and what's done.
+ */
+function ScheduleStatusPill({
+  isRunning,
+  isCompleted,
+  isPaused,
+}: {
+  isRunning: boolean;
+  isCompleted: boolean;
+  isPaused: boolean;
+}) {
+  // Running — pulsing green dot inside a soft-accent square. The dot
+  // animates via the existing .pulse-dot CSS (defined below) to
+  // signal "live, polling, will fire soon".
+  if (isRunning) {
+    return (
+      <div
+        className="rounded-md grid place-items-center flex-shrink-0"
+        style={{
+          width: 36,
+          height: 36,
+          background: "var(--accent-soft)",
+          color: "var(--accent-ink)",
+        }}
+        title="Running — will fire on the next cron tick"
+      >
+        <div className="flex items-center gap-1.5 text-[10px] font-medium">
+          <span
+            className="rounded-full pulse-dot"
+            style={{ width: 7, height: 7, background: "var(--accent)" }}
+          />
+        </div>
+      </div>
+    );
+  }
+  // Completed — accent check, same soft background as the chip.
+  if (isCompleted) {
+    return (
+      <div
+        className="rounded-md grid place-items-center flex-shrink-0"
+        style={{
+          width: 36,
+          height: 36,
+          background: "var(--accent-soft)",
+          color: "var(--accent-ink)",
+        }}
+        title="Completed — every topic published"
+      >
+        <Icons.Check size={18} />
+      </div>
+    );
+  }
+  // Paused — muted clock icon so it reads as "waiting, not live".
+  return (
+    <div
+      className="rounded-md grid place-items-center flex-shrink-0"
+      style={{
+        width: 36,
+        height: 36,
+        background: "var(--line-2)",
+        color: "var(--muted)",
+      }}
+      title="Paused — click Resume to fire on the next tick"
+    >
+      <Icons.Clock size={16} />
+      {isPaused /* lint-keep */ && null}
+    </div>
+  );
+}
+
 export default function BloggerOverview() {
   const [conns, setConns] = useState<WpConnection[]>([]);
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
@@ -186,30 +260,68 @@ export default function BloggerOverview() {
                     const topicCount = (s.topics || []).length;
                     const published = Math.min(s.next_topic_index ?? 0, topicCount);
                     const isCompleted = !!s.completed_at;
+                    const isRunning = !isCompleted && s.enabled;
+                    const isPaused = !isCompleted && !s.enabled;
+                    const pct = topicCount > 0 ? Math.round((published / topicCount) * 100) : 0;
                     return (
                     <div key={s.id} className="card p-4 flex items-start gap-3 flex-wrap">
+                      {/* Status pill — leftmost so eyes land on it first. */}
+                      <ScheduleStatusPill
+                        isRunning={isRunning}
+                        isCompleted={isCompleted}
+                        isPaused={isPaused}
+                      />
+
                       <div className="flex-1 min-w-0">
-                        <div className="text-[14px] font-medium truncate flex items-center gap-2">
-                          {s.name}
-                          {isCompleted && <span className="chip chip-accent text-[10px]">Completed</span>}
-                        </div>
+                        <div className="text-[14px] font-medium truncate">{s.name}</div>
                         <div className="text-[11.5px] text-muted mt-0.5 flex flex-wrap items-center gap-2">
                           <span>{s.site_name || s.site_url}</span>
                           <span>·</span>
                           <span>{CADENCE_LABEL[s.cadence] ?? s.cadence}</span>
-                          <span>·</span>
-                          <span>{published} of {topicCount} topic{topicCount === 1 ? "" : "s"} published</span>
                         </div>
-                        <div className="text-[11px] text-muted-2 mt-0.5">
+
+                        {/* Progress bar — shows X of Y topics + a thin
+                            filled track so completion is visible at a
+                            glance, not just in the text. */}
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between text-[11px] text-muted-2 mb-1">
+                            <span>
+                              <span className="text-ink font-medium">{published}</span>
+                              <span> of </span>
+                              <span className="text-ink font-medium">{topicCount}</span>
+                              <span> topic{topicCount === 1 ? "" : "s"} published</span>
+                            </span>
+                            <span className="font-mono">{pct}%</span>
+                          </div>
+                          <div
+                            className="h-[4px] rounded-full overflow-hidden"
+                            style={{ background: "var(--line-2)" }}
+                          >
+                            <div
+                              className="h-full transition-[width]"
+                              style={{
+                                width: `${pct}%`,
+                                background: isCompleted
+                                  ? "var(--accent)"
+                                  : isRunning
+                                  ? "var(--ink)"
+                                  : "var(--muted-2)",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-muted-2 mt-1.5">
                           {isCompleted ? (
-                            <em>finished{s.last_run_at && <> · last post {timeAgo(s.last_run_at)}</>}</em>
-                          ) : s.enabled ? (
+                            <>Finished{s.last_run_at && <> · last post {timeAgo(s.last_run_at)}</>}</>
+                          ) : isRunning ? (
                             <>Next run {untilNext(s.next_run_at)}{s.last_run_at && <> · last {timeAgo(s.last_run_at)}</>}</>
                           ) : (
-                            <em>paused{s.last_run_at && <> · last {timeAgo(s.last_run_at)}</>}</em>
+                            <>Paused{s.last_run_at && <> · last {timeAgo(s.last_run_at)}</>}</>
                           )}
                         </div>
                       </div>
+
                       <div className="flex items-center gap-1.5">
                         <span className={`chip ${s.publish_status === "publish" ? "chip-accent" : ""}`}>
                           {s.publish_status === "publish" ? "Auto-publish" : "Draft"}
