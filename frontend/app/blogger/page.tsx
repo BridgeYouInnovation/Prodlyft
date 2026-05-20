@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/Shell";
 import { Icons } from "@/components/Icons";
+import { YouTubeEmbed } from "@/components/YouTubeEmbed";
 import { CADENCE_LABEL, type WpConnection, type BlogSchedule, type BlogArticle } from "@/lib/blogger";
 
 interface ScheduleRow extends BlogSchedule {
@@ -94,17 +95,35 @@ export default function BloggerOverview() {
         {!loaded ? (
           <div className="text-muted text-sm py-10 text-center">Loading…</div>
         ) : conns.length === 0 ? (
-          <div className="card px-6 py-16 text-center max-w-[560px] mx-auto">
-            <div className="w-12 h-12 rounded-full grid place-items-center mx-auto mb-4 bg-line-2">
-              <Icons.Plug size={20} className="text-muted" />
+          <div className="max-w-[760px] mx-auto">
+            <div className="card px-6 py-12 text-center mb-6">
+              <div className="w-12 h-12 rounded-full grid place-items-center mx-auto mb-4 bg-line-2">
+                <Icons.Plug size={20} className="text-muted" />
+              </div>
+              <div className="text-[16px] font-[560] mb-2">Connect WordPress to begin</div>
+              <p className="text-[13px] text-muted mb-6 leading-[1.55] max-w-[440px] mx-auto">
+                Install our small WordPress plugin, paste the API key here, and Prodlyft can write and publish posts to your site automatically.
+              </p>
+              <Link href="/blogger/connect" className="btn-primary btn-lg">
+                <Icons.Plus size={14} /> Connect your first site
+              </Link>
             </div>
-            <div className="text-[16px] font-[560] mb-2">Connect WordPress to begin</div>
-            <p className="text-[13px] text-muted mb-6 leading-[1.55]">
-              Install our small WordPress plugin, paste the API key here, and Prodlyft can write and publish posts to your site automatically.
-            </p>
-            <Link href="/blogger/connect" className="btn-primary btn-lg">
-              <Icons.Plus size={14} /> Connect your first site
-            </Link>
+
+            {/* Walkthrough video — only shown until the user has connected
+                their first WordPress site. Hides automatically once
+                conns.length flips to > 0 above. */}
+            <div className="text-center mb-4">
+              <div className="text-[11px] font-mono uppercase tracking-wider text-muted mb-1.5">
+                Quick tour
+              </div>
+              <h2 className="text-[16px] font-[560] tracking-tight2">
+                How Auto Blogger works
+              </h2>
+            </div>
+            <YouTubeEmbed
+              videoId="j9xxSk5eQYc"
+              title="Prodlyft Auto Blogger — full demo"
+            />
           </div>
         ) : (
           <div className="grid gap-6">

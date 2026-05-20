@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Icons } from "@/components/Icons";
 import { LandingHeader } from "@/components/LandingHeader";
+import { YouTubeEmbed } from "@/components/YouTubeEmbed";
 import { createCrawl } from "@/lib/api";
 
 const logos = ["ALBA", "NORTHWIND", "KOFI", "LUMEN", "PARITY", "FIELDNOTE"];
@@ -219,6 +220,22 @@ export default function Landing() {
               <div className="text-[13px] text-muted leading-[1.55]">{s.d}</div>
             </div>
           ))}
+        </div>
+
+        {/* Walkthrough video */}
+        <div className="mt-16 md:mt-20 max-w-[860px] mx-auto">
+          <div className="text-center mb-5">
+            <div className="text-[11.5px] font-mono uppercase tracking-wider text-muted mb-2">
+              See it in action
+            </div>
+            <h2 className="text-[22px] md:text-[28px] font-[560] tracking-tight2">
+              From URL to import-ready CSV in 60 seconds
+            </h2>
+          </div>
+          <YouTubeEmbed
+            videoId="jVZc26Sy0vA"
+            title="Prodlyft Product Scraper — full demo"
+          />
         </div>
       </section>
 
