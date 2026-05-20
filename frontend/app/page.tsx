@@ -100,20 +100,33 @@ export default function Landing() {
 
         <form
           onSubmit={onSubmit}
-          className="max-w-[640px] mx-auto bg-white border border-line rounded-xl p-2 flex flex-col sm:flex-row sm:items-center gap-2"
+          className="max-w-[640px] mx-auto bg-white border border-line rounded-xl p-2 sm:p-2 flex flex-col sm:flex-row sm:items-center gap-2 text-left"
           style={{ boxShadow: "0 1px 2px rgba(14,14,12,0.04), 0 12px 40px -20px rgba(14,14,12,0.15)" }}
         >
-          <div className="flex items-center gap-2 px-3 sm:border-r border-line text-muted h-10 sm:h-11">
-            <Icons.Link size={15} />
-            <span className="font-mono text-[12px]">https://</span>
-          </div>
-          <input
-            className="flex-1 font-mono text-[13.5px] text-ink text-left bg-transparent outline-none px-3 sm:px-0 min-w-0"
-            placeholder="store.myshopify.com"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            autoFocus
-          />
+          {/* URL field. Mobile gets a visible label + bigger input so it's
+              obvious where to paste; desktop keeps the original inline
+              "https://" pill look. */}
+          <label htmlFor="extract-url" className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center">
+            <span className="sm:hidden text-[11px] font-mono uppercase tracking-wider text-muted px-3 pt-1.5 pb-1">
+              Paste your store URL
+            </span>
+            <div className="hidden sm:flex items-center gap-2 px-3 sm:border-r border-line text-muted h-10 sm:h-11">
+              <Icons.Link size={15} />
+              <span className="font-mono text-[12px]">https://</span>
+            </div>
+            <input
+              id="extract-url"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className="flex-1 font-mono text-ink text-left bg-transparent outline-none px-3 sm:px-0 min-w-0 h-11 sm:h-auto"
+              placeholder="https://store.myshopify.com"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </label>
           <button
             type="submit"
             disabled={submitting || authStatus === "loading"}

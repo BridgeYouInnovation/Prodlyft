@@ -58,6 +58,14 @@ p { margin: 0; }
   textarea.input { @apply h-auto py-2.5 leading-normal; resize: vertical; }
   .input-mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; }
 
+  /* iOS auto-zooms (and pans the whole viewport) whenever an input is
+     focused and its font-size is below 16px — that's the "screen
+     becomes unresponsive on tap" behaviour. Force every form control
+     up to 16px on mobile while keeping the smaller desktop look. */
+  @media (max-width: 640px) {
+    input, textarea, select, .input, .input-mono { font-size: 16px !important; }
+  }
+
   .label { @apply block text-[12px] font-medium text-ink-2 mb-1.5; }
 
   .card { @apply bg-surface border border-line rounded-lg; }
