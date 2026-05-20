@@ -34,11 +34,18 @@ interface PaymentRow {
  * stops double-credit).
  */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+  // No auth gate here — the app_transaction_ref is itself an unguessable
+  // 24-hex-char (96-bit) sha256-derived token, so possessing it is the
+  // credential. Returning only non-PII fields below (status, operator,
+  // pack id, timestamps) means even if the ref leaked we wouldn't expose
+  // anything sensitive. Earlier the auth-gated version dropped polling
+  // on any 401 — for users whose session cookie didn't survive the
+  // round-trip via MCP, the success page got permanently stuck on
+  // "Confirming…" even though the payment had landed and tokens had
+  // been credited.
   const session = await auth();
   const userId = Number((session?.user as { id?: string | number } | undefined)?.id);
-  if (!session?.user || !Number.isFinite(userId)) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
-  }
+
   const { ref } = await params;
 
   const r = await pool.query<PaymentRow>(
@@ -50,9 +57,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (r.rowCount === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const p = r.rows[0];
-  if (p.user_id !== userId) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  // Track whether the caller is the payment owner. Only matters for
+  // the optional ownership flag we send back so the client can show
+  // "your payment" vs generic copy. Mismatch is NOT an error here.
+  const isOwner = Number.isFinite(userId) && p.user_id === userId;
 
   // Reconcile when the row is stuck pending. Wait at least ~8 seconds since
   // the row was created so the normal callback path gets first crack — no
@@ -118,17 +126,31 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     operator = (p.payload as { transaction_operator?: string }).transaction_operator || null;
   }
 
+  // Response shape — owner gets the full row, non-owners get only what
+  // the success page needs to show "paid via X, redirect to dashboard".
+  // Everyone gets status + operator + plan because the ref-holder
+  // already knows those (they passed plan to /paylink and saw the
+  // operator on MCP's checkout).
+  if (isOwner) {
+    return NextResponse.json({
+      id: p.id,
+      user_id: p.user_id,
+      plan: p.plan,
+      amount: p.amount,
+      currency: p.currency,
+      status: p.status,
+      app_transaction_ref: p.app_transaction_ref,
+      mcp_transaction_ref: p.mcp_transaction_ref,
+      operator,
+      is_owner: true,
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    });
+  }
   return NextResponse.json({
-    id: p.id,
-    user_id: p.user_id,
-    plan: p.plan,
-    amount: p.amount,
-    currency: p.currency,
     status: p.status,
-    app_transaction_ref: p.app_transaction_ref,
-    mcp_transaction_ref: p.mcp_transaction_ref,
+    plan: p.plan,
     operator,
-    created_at: p.created_at,
-    updated_at: p.updated_at,
+    is_owner: false,
   });
 }
