@@ -72,14 +72,86 @@ interface GeneratedContent {
   body: string;
 }
 
-export async function generateContent(input: GenerateContentInput): Promise<GeneratedContent> {
-  const words = LENGTH_WORDS[input.length] ?? 900;
-  const userMsg = [
-    `Topic: ${input.topic}`,
-    `Tone: ${input.tone?.trim() || "professional and engaging"}`,
-    `Target length: ~${words} words`,
-  ].join("\n");
+/**
+ * Pull a clean JSON object out of whatever the model returned. LLMs are
+ * fond of wrapping JSON in markdown fences, prefixing with prose ("Here's
+ * your article:"), trailing commas, or producing un-escaped newlines
+ * inside strings. We try a sequence of progressively-tolerant strategies
+ * before giving up.
+ */
+function extractJsonObject<T>(raw: string): T | null {
+  if (!raw || !raw.trim()) return null;
 
+  // Strategy 1: straight parse.
+  try { return JSON.parse(raw) as T; } catch { /* try harder */ }
+
+  // Strategy 2: strip markdown code fences (```json ... ``` or ``` ... ```).
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    try { return JSON.parse(fenced[1].trim()) as T; } catch { /* fall through */ }
+  }
+
+  // Strategy 3: find the first balanced top-level {...} block. Tracks
+  // string boundaries + escape sequences so braces inside strings don't
+  // throw off the depth counter.
+  const balanced = findBalancedJson(raw);
+  if (balanced) {
+    try { return JSON.parse(balanced) as T; } catch { /* try cleanup */ }
+
+    // Strategy 4: cheap cleanups for the most common LLM quirks —
+    // trailing commas, smart-quotes, BOM. We deliberately do NOT strip
+    // control chars: tab/newline/CR inside JSON strings must be escaped,
+    // but stripping them blindly would corrupt valid HTML in `body`.
+    // If the model emitted unescaped control chars, JSON.parse below
+    // fails and we give up — better than silent corruption.
+    const cleaned = balanced
+      .replace(/,(\s*[}\]])/g, "$1")        // trailing commas
+      .replace(/[‘’]/g, "'")      // curly single quotes
+      .replace(/[“”]/g, '"')      // curly double quotes
+      .replace(/^\uFEFF/, "");           // BOM
+    try { return JSON.parse(cleaned) as T; } catch { /* give up */ }
+  }
+  return null;
+}
+
+/** Walk `raw`, find the first {...} block where braces balance. */
+function findBalancedJson(raw: string): string | null {
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+interface OpenRouterResponse {
+  choices?: {
+    message?: { content?: string };
+    finish_reason?: string;
+  }[];
+  error?: { message?: string };
+}
+
+/**
+ * Call OpenRouter once. Bubbles up HTTP / parse problems with specific
+ * messages — the caller decides whether to retry.
+ */
+async function callArticleModel(
+  userMsg: string,
+  systemPrompt: string,
+): Promise<{ content: string; finishReason: string | undefined }> {
   const r = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
@@ -91,7 +163,7 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
     body: JSON.stringify({
       model: ARTICLE_MODEL,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userMsg },
       ],
       temperature: 0.7,
@@ -103,20 +175,77 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
   if (!r.ok) {
     throw new Error(`OpenRouter HTTP ${r.status}: ${(await r.text()).slice(0, 240)}`);
   }
-  const body = (await r.json()) as { choices?: { message?: { content?: string } }[] };
-  const raw = body?.choices?.[0]?.message?.content || "";
-  let parsed: GeneratedContent;
-  try {
-    parsed = JSON.parse(raw) as GeneratedContent;
-  } catch {
-    const m = raw.match(/\{[\s\S]+\}/);
-    if (!m) throw new Error("AI did not return JSON");
-    parsed = JSON.parse(m[0]) as GeneratedContent;
+  const body = (await r.json()) as OpenRouterResponse;
+  if (body.error?.message) {
+    throw new Error(`OpenRouter error: ${body.error.message}`);
   }
-  if (!parsed.title || !parsed.body) {
-    throw new Error("AI response missing title or body");
+  const choice = body?.choices?.[0];
+  return {
+    content: choice?.message?.content || "",
+    finishReason: choice?.finish_reason,
+  };
+}
+
+export async function generateContent(input: GenerateContentInput): Promise<GeneratedContent> {
+  const words = LENGTH_WORDS[input.length] ?? 900;
+  const userMsg = [
+    `Topic: ${input.topic}`,
+    `Tone: ${input.tone?.trim() || "professional and engaging"}`,
+    `Target length: ~${words} words`,
+  ].join("\n");
+
+  // Two-pass strategy: first call uses the normal system prompt. If we
+  // can't parse JSON out of the reply, retry once with an extra reminder
+  // appended. Empirically this fixes the cases where Gemini/Claude got
+  // chatty and wrapped the JSON in prose or markdown.
+  const STRICTER_REMINDER =
+    "\n\nCRITICAL: Output MUST be a single raw JSON object starting with { and ending with }. " +
+    "No markdown code fences. No prose before or after. No explanation. " +
+    "All strings must be valid JSON (escape any internal double quotes with \\\").";
+
+  let lastRaw = "";
+  let lastFinish: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const prompt = attempt === 0 ? SYSTEM_PROMPT : SYSTEM_PROMPT + STRICTER_REMINDER;
+    const { content, finishReason } = await callArticleModel(userMsg, prompt);
+    lastRaw = content;
+    lastFinish = finishReason;
+
+    // Truncation is unrecoverable — the JSON is incomplete by definition.
+    // Fail fast with a useful message; don't waste a retry.
+    if (finishReason === "length") {
+      throw new Error(
+        `AI response truncated by token limit (finish_reason=length, ${content.length} chars). ` +
+          "Try a shorter Length setting or split the topic.",
+      );
+    }
+
+    const parsed = extractJsonObject<GeneratedContent>(content);
+    if (parsed && parsed.title && parsed.body) {
+      return parsed;
+    }
+    if (parsed && (!parsed.title || !parsed.body)) {
+      // Parsed but schema was wrong — log this case and let the retry try.
+      console.warn(
+        `[blogger] attempt ${attempt + 1}: JSON parsed but missing fields ` +
+          `(title=${!!parsed.title}, body=${!!parsed.body})`,
+      );
+    } else {
+      console.warn(
+        `[blogger] attempt ${attempt + 1}: could not parse JSON from ${content.length}-char response. ` +
+          `Preview: ${content.slice(0, 160).replace(/\s+/g, " ")}…`,
+      );
+    }
   }
-  return parsed;
+
+  // Both attempts exhausted. Surface a useful error with a snippet of
+  // what we got so admin debugging is easier than "AI did not return JSON".
+  const preview = lastRaw.slice(0, 200).replace(/\s+/g, " ");
+  throw new Error(
+    `AI failed to return valid JSON after 2 attempts ` +
+      `(finish_reason=${lastFinish ?? "?"}, ${lastRaw.length} chars). ` +
+      `Got: "${preview}${lastRaw.length > 200 ? "…" : ""}"`,
+  );
 }
 
 /**
