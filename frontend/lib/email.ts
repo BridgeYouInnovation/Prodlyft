@@ -24,8 +24,14 @@ function transporter(): Transporter | null {
   if (cached) return cached;
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const port = Number(process.env.SMTP_PORT || 465);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const user = process.env.SMTP_USER?.trim();
+  // Gmail's UI displays app passwords as `xxxx xxxx xxxx xxxx` with
+  // spaces purely for readability — those spaces are NOT part of the
+  // password and Gmail's SMTP server rejects them. Most users copy the
+  // visual representation verbatim and end up with a 19-char value
+  // when Gmail expects 16, which 535-5.7.8s. Strip every whitespace
+  // char so it works either way.
+  const pass = process.env.SMTP_PASS?.replace(/\s+/g, "");
   if (!user || !pass) {
     // Caller decides whether absence is fatal; log once so the deploy
     // log makes the misconfiguration obvious.

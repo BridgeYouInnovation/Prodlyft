@@ -20,12 +20,19 @@ export async function POST() {
   const check = await requireAdmin();
   if (!check.ok) return check.res;
 
+  // Report BOTH the raw and post-trim password length so the user can
+  // tell whether they pasted whitespace by accident. Gmail app
+  // passwords are 16 chars without spaces; anything else is a misfire.
+  const rawPass = process.env.SMTP_PASS || "";
+  const trimmedPass = rawPass.replace(/\s+/g, "");
   const env = {
     SMTP_HOST: process.env.SMTP_HOST || "(default: smtp.gmail.com)",
     SMTP_PORT: process.env.SMTP_PORT || "(default: 465)",
     SMTP_USER: process.env.SMTP_USER ? `set (${process.env.SMTP_USER})` : "MISSING",
-    SMTP_PASS: process.env.SMTP_PASS
-      ? `set (${process.env.SMTP_PASS.length} chars)`
+    SMTP_PASS: rawPass
+      ? `set (raw ${rawPass.length} chars → ${trimmedPass.length} after stripping whitespace${
+          trimmedPass.length === 16 ? "; matches Gmail app-password format" : "; expected 16 for Gmail"
+        })`
       : "MISSING",
     SMTP_FROM: process.env.SMTP_FROM || `(falls back to SMTP_USER)`,
     SUPPORT_EMAIL: process.env.SUPPORT_EMAIL || "(falls back to SMTP_USER)",
