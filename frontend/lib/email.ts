@@ -49,13 +49,21 @@ export interface SendOpts {
   replyTo?: string;
 }
 
-/** Send one email. Returns true on success, false on any failure. */
-export async function sendEmail(opts: SendOpts): Promise<boolean> {
+export interface SendResult {
+  ok: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+/** Send one email and wait for the SMTP handoff to complete. Never throws. */
+export async function sendEmail(opts: SendOpts): Promise<SendResult> {
   const tx = transporter();
-  if (!tx) return false;
+  if (!tx) {
+    return { ok: false, error: "SMTP not configured (SMTP_USER / SMTP_PASS missing)" };
+  }
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
   try {
-    await tx.sendMail({
+    const info = await tx.sendMail({
       from,
       to: opts.to,
       subject: opts.subject,
@@ -63,10 +71,11 @@ export async function sendEmail(opts: SendOpts): Promise<boolean> {
       html: opts.html,
       replyTo: opts.replyTo,
     });
-    return true;
+    return { ok: true, messageId: info.messageId };
   } catch (e) {
-    console.error("[email] send failed:", (e as Error).message);
-    return false;
+    const msg = (e as Error).message;
+    console.error("[email] send failed:", msg);
+    return { ok: false, error: msg };
   }
 }
 

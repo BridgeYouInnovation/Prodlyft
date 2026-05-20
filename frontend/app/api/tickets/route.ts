@@ -89,13 +89,18 @@ export async function POST(req: NextRequest) {
 
   // Best-effort admin notification. Failure here doesn't roll back the
   // ticket — the user shouldn't see "could not open ticket" because our
-  // SMTP creds expired. Errors are logged for the operator to diagnose.
+  // SMTP creds expired. We AWAIT the send (rather than fire-and-forget)
+  // because Vercel serverless kills the function the moment we return,
+  // which on a fire-and-forget pattern means SMTP gets cut mid-handoff
+  // and no email is sent. ~500ms-1s extra on the response, but it's
+  // either that or no notification at all.
   const inbox = supportEmail();
+  let sendResult: Awaited<ReturnType<typeof sendEmail>> | null = null;
   if (inbox) {
     const userEmail = (session.user.email || "").trim();
     const origin = req.headers.get("origin") || "https://prodlyft.com";
     const ticketUrl = `${origin}/admin/tickets/${ticketId}`;
-    void sendEmail({
+    sendResult = await sendEmail({
       to: inbox,
       subject: `[Prodlyft ticket] ${subject}`,
       replyTo: userEmail || undefined,
@@ -113,7 +118,19 @@ export async function POST(req: NextRequest) {
         `<p><a href="${escapeHtml(ticketUrl)}">Open in admin</a></p>` +
         `</div>`,
     });
+  } else {
+    sendResult = { ok: false, error: "SUPPORT_EMAIL / SMTP_USER not configured" };
   }
 
-  return NextResponse.json({ id: ticketId }, { status: 201 });
+  return NextResponse.json(
+    {
+      id: ticketId,
+      // Echo the email outcome so the client / admin can verify the
+      // notification actually went out. Doesn't expose anything we
+      // didn't already know about the sender's own SMTP config.
+      email_sent: !!sendResult?.ok,
+      email_error: sendResult?.ok === false ? sendResult.error : undefined,
+    },
+    { status: 201 },
+  );
 }

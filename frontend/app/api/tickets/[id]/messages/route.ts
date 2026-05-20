@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const userEmail = (session?.user?.email || "").trim();
       const origin = req.headers.get("origin") || "https://prodlyft.com";
       const url = `${origin}/admin/tickets/${id}`;
-      void sendEmail({
+      await sendEmail({
         to: inbox,
         subject: `[Prodlyft ticket] new reply from ${userEmail || "user"}`,
         replyTo: userEmail || undefined,
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (userEmail) {
         const origin = req.headers.get("origin") || "https://prodlyft.com";
         const url = `${origin}/tickets/${id}`;
-        void sendEmail({
+        await sendEmail({
           to: userEmail,
           subject: "Prodlyft support — new reply on your ticket",
           text:
