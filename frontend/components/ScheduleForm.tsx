@@ -1,0 +1,215 @@
+"use client";
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
+import { Icons } from "@/components/Icons";
+import {
+  CADENCE_LABEL,
+  LENGTH_LABEL,
+  type Cadence,
+  type LengthTarget,
+  type PublishStatus,
+  type WpConnection,
+} from "@/lib/blogger";
+
+export interface ScheduleFormValues {
+  name: string;
+  wp_connection_id: string;
+  topics: string[];
+  tone: string | null;
+  length_target: LengthTarget;
+  cadence: Cadence;
+  publish_status: PublishStatus;
+  generate_image: boolean;
+}
+
+interface Props {
+  /** Pre-filled values; undefined fields use defaults. Pass for edit mode. */
+  initial?: Partial<ScheduleFormValues>;
+  /** Disable changing the target site in edit mode (would orphan past articles). */
+  lockConnection?: boolean;
+  /** Submit button copy. */
+  submitLabel: string;
+  /** Active-form copy while submitting. */
+  submitActiveLabel: string;
+  /** Called with the form values when the user submits. Throw to surface an error. */
+  onSubmit: (values: ScheduleFormValues) => Promise<void>;
+  /** Optional sub-line under the H1, e.g. an explanatory note. */
+  helpText?: React.ReactNode;
+}
+
+/**
+ * Reusable form for creating or editing a blog schedule. Used by both
+ * /blogger/schedules/new and /blogger/schedules/[id]/edit so the field
+ * list and validation only live in one place.
+ */
+export function ScheduleForm({
+  initial,
+  lockConnection = false,
+  submitLabel,
+  submitActiveLabel,
+  onSubmit,
+  helpText,
+}: Props) {
+  const [conns, setConns] = useState<WpConnection[]>([]);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [connectionId, setConnectionId] = useState(initial?.wp_connection_id ?? "");
+  const [topicsText, setTopicsText] = useState((initial?.topics ?? []).join("\n"));
+  const [tone, setTone] = useState(initial?.tone ?? "");
+  const [length, setLength] = useState<LengthTarget>(initial?.length_target ?? "medium");
+  const [cadence, setCadence] = useState<Cadence>(initial?.cadence ?? "24h");
+  const [publish, setPublish] = useState<PublishStatus>(initial?.publish_status ?? "draft");
+  const [withImage, setWithImage] = useState(initial?.generate_image ?? true);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/blogger/connections")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: WpConnection[]) => {
+        setConns(d);
+        // Auto-select the single connection on create.
+        if (!initial?.wp_connection_id && d.length === 1) setConnectionId(d[0].id);
+      });
+    // Only run once on mount — caller-supplied initial doesn't change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const topics = topicsText
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (!name.trim() || !connectionId || topics.length === 0) {
+      setErr("Name, site, and at least one topic are required.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        name: name.trim(),
+        wp_connection_id: connectionId,
+        topics,
+        tone: tone.trim() || null,
+        length_target: length,
+        cadence,
+        publish_status: publish,
+        generate_image: withImage,
+      });
+    } catch (e) {
+      setErr((e as Error).message);
+      setSubmitting(false);
+    }
+  }
+
+  if (conns.length === 0 && !initial) {
+    return (
+      <div className="card p-5 text-center">
+        <div className="text-[14px] font-medium mb-2">Connect a WordPress site first</div>
+        <Link href="/blogger/connect" className="btn-primary">Connect WordPress</Link>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="card p-5 grid gap-4">
+      {helpText && <div className="text-[12.5px] text-muted -mt-1">{helpText}</div>}
+      <div>
+        <label className="label">Name</label>
+        <input
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Weekly SEO posts for the auto-parts blog"
+          required
+        />
+      </div>
+      <div>
+        <label className="label">Target site</label>
+        <select
+          className="input"
+          value={connectionId}
+          onChange={(e) => setConnectionId(e.target.value)}
+          required
+          disabled={lockConnection}
+        >
+          <option value="">Choose a site…</option>
+          {conns.map((c) => (
+            <option key={c.id} value={c.id}>{c.site_name || c.site_url}</option>
+          ))}
+        </select>
+        {lockConnection && (
+          <div className="mt-1 text-[11.5px] text-muted-2">
+            Site is locked on edit — past articles stay linked to this connection.
+          </div>
+        )}
+      </div>
+      <div>
+        <label className="label">Topics</label>
+        <textarea
+          className="input"
+          rows={6}
+          value={topicsText}
+          onChange={(e) => setTopicsText(e.target.value)}
+          placeholder={"One topic per line, e.g.:\nHow to install a Mazda Miata coilover kit\nBest budget OBD2 scanners under $50\n10 winter prep tips for daily drivers"}
+          required
+        />
+        <div className="mt-1 text-[11.5px] text-muted-2">
+          {topics.length} topic{topics.length === 1 ? "" : "s"} parsed. We round-robin through them — each run picks the next one.
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="label">Cadence</label>
+          <select className="input" value={cadence} onChange={(e) => setCadence(e.target.value as Cadence)}>
+            {(["10min", "30min", "1h", "2h", "5h", "12h", "24h", "48h"] as Cadence[]).map((c) => (
+              <option key={c} value={c}>{CADENCE_LABEL[c]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Length</label>
+          <select className="input" value={length} onChange={(e) => setLength(e.target.value as LengthTarget)}>
+            {(["short", "medium", "long"] as LengthTarget[]).map((l) => (
+              <option key={l} value={l}>{LENGTH_LABEL[l]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="label">Tone <span className="text-muted-2 font-normal">(optional)</span></label>
+          <input className="input" value={tone} onChange={(e) => setTone(e.target.value)} placeholder="e.g. friendly and beginner-friendly" />
+        </div>
+        <div>
+          <label className="label">Publish as</label>
+          <select className="input" value={publish} onChange={(e) => setPublish(e.target.value as PublishStatus)}>
+            <option value="draft">Draft (review in WP first)</option>
+            <option value="publish">Publish immediately</option>
+          </select>
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-[13px] text-ink-2">
+        <input
+          type="checkbox"
+          checked={withImage}
+          onChange={(e) => setWithImage(e.target.checked)}
+          style={{ accentColor: "var(--ink)" }}
+        />
+        Generate a featured image with each article
+      </label>
+      {err && <div className="p-3 rounded-md text-[12.5px] bg-warn-soft text-warn-ink">{err}</div>}
+      <div className="flex justify-end gap-2 mt-1">
+        <Link href="/blogger" className="btn">Cancel</Link>
+        <button type="submit" disabled={submitting} className="btn-primary btn-lg">
+          {submitting ? submitActiveLabel : <>{submitLabel} <Icons.ArrowRight size={14} /></>}
+        </button>
+      </div>
+      <div className="text-[11px] text-muted-2 leading-[1.55]">
+        Cron ticks every 10 minutes. Each article costs 5 tokens (10 with featured image). Pause or delete a schedule any time.
+      </div>
+    </form>
+  );
+}

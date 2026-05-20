@@ -172,6 +172,9 @@ export default function BloggerOverview() {
                         <span className={`chip ${s.publish_status === "publish" ? "chip-accent" : ""}`}>
                           {s.publish_status === "publish" ? "Auto-publish" : "Draft"}
                         </span>
+                        <Link href={`/blogger/schedules/${s.id}/edit`} className="btn-sm">
+                          Edit
+                        </Link>
                         <button onClick={() => toggleSchedule(s)} className="btn-sm">
                           {s.enabled ? "Pause" : "Resume"}
                         </button>

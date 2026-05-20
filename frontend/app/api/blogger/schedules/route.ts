@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
-import { computeNextRun } from "@/lib/blogger-engine";
+import { computeNextRun, generateAndPost, InsufficientTokensError } from "@/lib/blogger-engine";
 import type { Cadence, LengthTarget, PublishStatus } from "@/lib/blogger";
 
 export const runtime = "nodejs";
+// Schedule creation can fire the first article inline (AI gen + WP post),
+// which takes 30-90s. Give Vercel enough headroom.
+export const maxDuration = 300;
 
 // New canonical cadence values plus the legacy ones (back-compat with rows
 // created before this migration). Form only offers the new set.
@@ -107,5 +110,50 @@ export async function POST(req: NextRequest) {
       next,
     ],
   );
-  return NextResponse.json({ id }, { status: 201 });
+
+  // Fire the first article inline so the user sees output immediately
+  // instead of waiting for the next cron tick. Failures here don't roll
+  // back the schedule — it stays on the rails for the next tick to
+  // retry, with the error surfaced in the article history.
+  let firstArticleId: string | null = null;
+  let firstArticleError: string | null = null;
+  try {
+    const out = await generateAndPost({
+      userId,
+      scheduleId: id,
+      connectionId: connId,
+      topic: topics[0],
+      tone: body.tone || null,
+      length,
+      publishStatus: pub,
+      withImage: body.generate_image !== false,
+      categoryIds: (body.default_categories as number[] | undefined) || null,
+      tagNames: (body.default_tags as string[] | undefined) || null,
+    });
+    firstArticleId = out.articleId;
+    // Advance the cursor and bump last_run_at so the cron treats this
+    // run as already done.
+    const nextIdx = topics.length > 1 ? 1 : 0;
+    await pool.query(
+      `UPDATE blog_schedules
+          SET next_topic_index = $1,
+              last_run_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $2`,
+      [nextIdx, id],
+    );
+  } catch (e) {
+    firstArticleError = (e as Error).message || String(e);
+    if (e instanceof InsufficientTokensError) {
+      // Auto-pause same as the cron path — don't keep retrying a
+      // schedule the user can't afford.
+      await pool.query("UPDATE blog_schedules SET enabled = FALSE WHERE id = $1", [id]);
+    }
+    console.error(`[schedules.post] first article for ${id} failed: ${firstArticleError}`);
+  }
+
+  return NextResponse.json(
+    { id, first_article_id: firstArticleId, first_article_error: firstArticleError },
+    { status: 201 },
+  );
 }
