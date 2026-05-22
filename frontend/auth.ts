@@ -20,6 +20,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user || !user.password) return null;
         const ok = await bcrypt.compare(password, user.password);
         if (!ok) return null;
+        // Block unverified accounts (admins bypass so a wedged
+        // verification email never locks out the team). Throwing
+        // makes NextAuth surface `error=EmailNotVerified` on the
+        // signin redirect — the page reads it and shows the resend UI.
+        if (!user.is_admin && !user.email_verified) {
+          throw new Error("EmailNotVerified");
+        }
         return {
           id: String(user.id),
           email: user.email,

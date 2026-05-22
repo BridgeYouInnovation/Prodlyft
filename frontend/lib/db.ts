@@ -31,13 +31,20 @@ export interface DbUser {
   products_used_in_period: number;
   products_used_total: number;
   created_at: string | null;
+  /** Timestamp the user verified their email, or null if unverified.
+      Stored in the camelCase column NextAuth's pg adapter expects. */
+  email_verified: string | null;
 }
 
+// `"emailVerified"` is the camelCase column NextAuth's pg adapter
+// created. We expose it as snake_case `email_verified` in the TS layer
+// for consistency with the rest of our schema.
 const SELECT_USER = `
   SELECT id, email, name, image, password, is_admin,
          plan, plan_period_start,
          products_used_in_period, products_used_total,
-         created_at
+         created_at,
+         "emailVerified" AS email_verified
   FROM users
 `;
 

@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
 import { BrandMark } from "@/components/BrandMark";
 import { Icons } from "@/components/Icons";
 
@@ -49,29 +48,21 @@ function SignUpForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password, name: name.trim() || undefined }),
       });
+      const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
         setErr(body.error || "Signup failed. Try again.");
         setSubmitting(false);
         return;
       }
-      const res = await signIn("credentials", {
+      // Account created, verification email sent. Route to the
+      // "check your inbox" screen — sign-in is blocked until the
+      // user clicks the link.
+      const params = new URLSearchParams({
         email: email.trim(),
-        password,
-        redirect: false,
+        ...(callbackUrl !== "/dashboard" ? { callbackUrl } : {}),
+        ...(body.verification_sent ? {} : { email_failed: "1" }),
       });
-      if (res?.error) {
-        setErr("Account created but sign-in failed. Try logging in.");
-        setSubmitting(false);
-        return;
-      }
-      let target = callbackUrl;
-      if (target === "/dashboard") {
-        const me = await fetch("/api/auth/session").then((r) => r.ok ? r.json() : null).catch(() => null);
-        if (me?.user?.is_admin) target = "/admin";
-      }
-      router.push(target);
-      router.refresh();
+      router.push(`/signup/verify-email?${params.toString()}`);
     } catch (e) {
       setErr((e as Error).message);
       setSubmitting(false);
