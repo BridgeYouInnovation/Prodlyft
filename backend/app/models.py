@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, JSON, Float, Integer, Boolean, ForeignKey
+from sqlalchemy import String, Text, DateTime, JSON, Float, Integer, Boolean, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import uuid
 
@@ -95,7 +95,16 @@ class Product(Base):
     in_stock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # server_default + Python default — server_default emits a DB-level
+    # DEFAULT NOW() so raw SQL inserts (admin CSV upload, ad-hoc tools)
+    # don't 500 with "null value in column created_at". Python default
+    # stays for ORM-driven inserts on databases that don't honour the
+    # server side.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        server_default=func.now(),
+    )
 
     crawl: Mapped["Crawl"] = relationship("Crawl", back_populates="products")
 

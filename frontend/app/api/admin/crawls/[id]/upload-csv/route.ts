@@ -187,10 +187,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await client.query("BEGIN");
     let inserted = 0;
     for (const p of out) {
+      // created_at is NOT NULL with no DB-level default (SQLAlchemy
+      // populates it from Python during worker inserts, but raw SQL
+      // bypasses that). Explicitly set NOW() so this path doesn't
+      // 500 with "null value in column created_at".
       await client.query(
         `INSERT INTO products (id, crawl_id, title, handle, sku, price, compare_at_price, currency, brand,
-                               short_description, description, categories, tags, images, in_stock, source_url)
-         VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                               short_description, description, categories, tags, images, in_stock, source_url,
+                               created_at)
+         VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                 NOW())`,
         [
           id,
           p.title ?? null,

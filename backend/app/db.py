@@ -244,6 +244,13 @@ CREATE INDEX IF NOT EXISTS idx_blog_articles_schedule ON blog_articles(schedule_
 -- its own media-library URL.
 ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_b64 TEXT;
 
+-- products.created_at had no DB-level default; admin CSV uploads + any
+-- other raw-SQL path 500'd with "null value in column created_at".
+-- The SQLAlchemy model now emits server_default=NOW() too, but
+-- existing deployments need this idempotent ALTER to backfill the
+-- default on the live column.
+ALTER TABLE products ALTER COLUMN created_at SET DEFAULT NOW();
+
 -- Schedules now run once per topic and stop when the list is exhausted
 -- (instead of looping forever). When the last topic publishes, we set
 -- completed_at and flip enabled to FALSE. UI distinguishes "completed"
