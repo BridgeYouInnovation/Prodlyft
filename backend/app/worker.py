@@ -6,7 +6,12 @@ from datetime import datetime
 
 from .db import SessionLocal
 from .models import Crawl, Product
-from .platforms import detect_platform, fetch_shopify_catalog, fetch_woocommerce_catalog
+from .platforms import (
+    detect_platform,
+    fetch_shopify_catalog,
+    fetch_woocommerce_catalog,
+    fetch_wp_listings_catalog,
+)
 from .scraper import fetch_html, extract_heuristic
 from .ai import clean_product
 from .ai_scraper import (
@@ -121,6 +126,13 @@ def process_crawl(crawl_id: str) -> None:
             def progress(done: int, total: int | None):
                 _update(crawl_id, progress={"step": "fetching", "done": done, "total": total})
             products = fetch_woocommerce_catalog(url, on_progress=progress, max_products=fetch_cap)
+        elif mode == "catalog" and platform == "wp_listings":
+            # WordPress site with a non-Woo listing CPT (Motors theme,
+            # real estate themes, job boards…). Scrape the inventory
+            # index page directly — see platforms.fetch_wp_listings_catalog.
+            def progress(done: int, total: int | None):
+                _update(crawl_id, progress={"step": "fetching", "done": done, "total": total})
+            products = fetch_wp_listings_catalog(url, on_progress=progress, max_products=fetch_cap)
         else:
             # Single product — rule-based heuristics first, AI-guided config
             # as a fallback when heuristics don't find a title or price.
@@ -191,11 +203,20 @@ def process_crawl(crawl_id: str) -> None:
         # Mark "done with nothing useful" as failed so the user gets a clear
         # message instead of an empty Extracts page that looks like success.
         if mode == "catalog" and len(products) == 0:
-            msg = (
-                f"No products returned from this {platform} store. "
-                "Either the public catalog API is disabled or the host blocked us. "
-                "Try the URL with platform=Other for a single-product extract."
-            )
+            if platform == "wp_listings":
+                msg = (
+                    "No listings found on this WordPress site. We tried the "
+                    "common inventory paths (/inventory/, /listings/, etc.) "
+                    "but couldn't extract any listing cards. The theme may "
+                    "render listings entirely with JavaScript or be using "
+                    "a non-standard URL structure."
+                )
+            else:
+                msg = (
+                    f"No products returned from this {platform} store. "
+                    "Either the public catalog API is disabled or the host blocked us. "
+                    "Try the URL with platform=Other for a single-product extract."
+                )
             _update(crawl_id, status="failed", error=msg, progress={"step": "empty", "total": 0}, total=0)
             return
         if mode == "single" and len(products) == 1:
