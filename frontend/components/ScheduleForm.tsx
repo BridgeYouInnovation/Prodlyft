@@ -61,6 +61,10 @@ export function ScheduleForm({
   const [withImage, setWithImage] = useState(initial?.generate_image ?? true);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Live token balance so the user can see whether the first article
+  // will fire. -1 means admin / unlimited; null means we haven't
+  // loaded it yet.
+  const [tokens, setTokens] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/blogger/connections")
@@ -70,9 +74,19 @@ export function ScheduleForm({
         // Auto-select the single connection on create.
         if (!initial?.wp_connection_id && d.length === 1) setConnectionId(d[0].id);
       });
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const bal = d?.tokens?.balance;
+        if (typeof bal === "number") setTokens(bal);
+      })
+      .catch(() => { /* non-fatal */ });
     // Only run once on mount — caller-supplied initial doesn't change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const firstArticleCost = withImage ? 10 : 5;
+  const insufficient = tokens !== null && tokens !== -1 && tokens < firstArticleCost;
 
   const topics = topicsText
     .split(/\n+/)
@@ -200,10 +214,43 @@ export function ScheduleForm({
         />
         Generate a featured image with each article
       </label>
+      {/* Cost / balance preview — makes "do I have enough?" obvious
+          before the user hits Submit, and warns loudly when the first
+          article (which fires immediately) won't be affordable. */}
+      {tokens !== null && tokens !== -1 && (
+        <div
+          className={`p-3 rounded-md text-[12.5px] ${insufficient ? "bg-warn-soft text-warn-ink" : "bg-surface2"}`}
+          style={!insufficient ? { borderColor: "var(--line)", borderWidth: 1, borderStyle: "solid" } : undefined}
+        >
+          {insufficient ? (
+            <>
+              <div className="font-medium mb-1">
+                You don&apos;t have enough tokens for the first article.
+              </div>
+              <div>
+                This schedule will use <strong>{firstArticleCost} tokens</strong> per post (the first one fires immediately).
+                You have <strong>{tokens.toLocaleString()}</strong>.{" "}
+                <Link href="/pricing" className="underline">Top up</Link> and come back.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="font-medium mb-1">
+                {firstArticleCost} tokens / post · You have {tokens.toLocaleString()} → roughly {Math.floor(tokens / firstArticleCost)} posts.
+              </div>
+              <div className="text-muted">
+                The first article publishes immediately after you click Create. Cost: {firstArticleCost} tokens
+                {withImage ? " (5 without the featured image)" : " (10 with a featured image)"}.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {err && <div className="p-3 rounded-md text-[12.5px] bg-warn-soft text-warn-ink">{err}</div>}
       <div className="flex justify-end gap-2 mt-1">
         <Link href="/blogger" className="btn">Cancel</Link>
-        <button type="submit" disabled={submitting} className="btn-primary btn-lg">
+        <button type="submit" disabled={submitting || insufficient} className="btn-primary btn-lg">
           {submitting ? submitActiveLabel : <>{submitLabel} <Icons.ArrowRight size={14} /></>}
         </button>
       </div>

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/db";
 import { computeNextRun, generateAndPost, InsufficientTokensError } from "@/lib/blogger-engine";
 import type { Cadence, LengthTarget, PublishStatus } from "@/lib/blogger";
+import { TOKEN_COSTS, getBalance } from "@/lib/tokens";
 
 export const runtime = "nodejs";
 // Schedule creation can fire the first article inline (AI gen + WP post),
@@ -84,6 +85,30 @@ export async function POST(req: NextRequest) {
   );
   if (cc.rowCount === 0) return NextResponse.json({ error: "Connection not found" }, { status: 404 });
 
+  // Pre-flight token check. We're about to fire the first article
+  // inline; if the user can't afford it we'd end up creating a zombie
+  // schedule that auto-pauses on its own first run. Reject 402 here
+  // with a clear message instead — the user keeps no half-built
+  // artifact, and the form surfaces the shortfall actionably.
+  const withImage = body.generate_image !== false;
+  const firstArticleCost = withImage ? TOKEN_COSTS.BLOG_POST_WITH_IMAGE : TOKEN_COSTS.BLOG_POST;
+  const { balance, is_admin } = await getBalance(userId);
+  if (!is_admin && balance >= 0 && balance < firstArticleCost) {
+    return NextResponse.json(
+      {
+        error:
+          `You need ${firstArticleCost} tokens to create this schedule (the first article ` +
+          `posts immediately). You have ${balance}. Top up first, then create your schedule.`,
+        code: "insufficient_tokens_for_first_article",
+        required: firstArticleCost,
+        balance,
+        cost_per_post: firstArticleCost,
+        cost_without_image: TOKEN_COSTS.BLOG_POST,
+      },
+      { status: 402 },
+    );
+  }
+
   const id = newId();
   const next = computeNextRun(cadence);
   await pool.query(
@@ -106,7 +131,7 @@ export async function POST(req: NextRequest) {
       pub,
       JSON.stringify(body.default_categories || null),
       JSON.stringify(body.default_tags || null),
-      body.generate_image !== false,
+      withImage,
       next,
     ],
   );
