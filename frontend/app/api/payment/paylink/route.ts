@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool, findUserById } from "@/lib/db";
-import { createPaylink, newAppTransactionRef } from "@/lib/mcp";
+import { initiatePay, newExternalId } from "@/lib/fapshi";
 import { getPack } from "@/lib/tokens";
 
 export const runtime = "nodejs";
 
 /**
- * POST /api/payment/paylink — create a My-CoolPay payment link for the
- * authenticated user buying a token pack. Returns the hosted checkout URL;
- * the client redirects the browser there. The webhook
- * (/api/payment/callback/[secret]) credits the tokens once MCP confirms.
+ * POST /api/payment/paylink — create a Fapshi payment link for the
+ * authenticated user buying a token pack. Returns the hosted checkout
+ * URL; the client redirects the browser there. The webhook
+ * (/api/payment/callback/[secret]) credits the tokens once Fapshi
+ * confirms.
  *
  * Body: { pack_id: "starter" | "creator" | "business" | "scale" }
  */
@@ -39,48 +40,61 @@ export async function POST(req: NextRequest) {
   const user = await findUserById(userId);
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  const appRef = newAppTransactionRef();
+  // externalId in Fapshi == our app_transaction_ref. Keep the column
+  // name we already have in the `payments` table to avoid a migration.
+  const externalId = newExternalId();
 
-  // Persist intent before hitting MCP. We store the pack id in the legacy
-  // `plan` column for now — same shape, different meaning.
+  // Persist intent before hitting Fapshi. We store the pack id in the
+  // legacy `plan` column (same shape, different meaning since the
+  // token-pack switch). If the Fapshi call fails we still have a
+  // record we can investigate from the admin side.
   await pool.query(
     `INSERT INTO payments (id, user_id, plan, amount, currency, app_transaction_ref, status)
      VALUES ($1, $2, $3, $4, 'XAF', $5, 'created')`,
-    [appRef, userId, packId, pack.price_xaf, appRef],
+    [externalId, userId, packId, pack.price_xaf, externalId],
   );
 
-  const result = await createPaylink({
-    transaction_amount: pack.price_xaf,
-    transaction_currency: "XAF",
-    transaction_reason: `Prodlyft — ${pack.name} (${pack.tokens.toLocaleString()} tokens)`,
-    app_transaction_ref: appRef,
-    customer_email: user.email,
-    customer_name: user.name || undefined,
-    customer_lang: "en",
+  // Build the redirectUrl from the request origin so dev / preview
+  // builds work without needing per-env config.
+  const origin = req.headers.get("origin") || `https://${req.headers.get("host") || "prodlyft.com"}`;
+  const redirectUrl = `${origin}/pricing/success?app_ref=${encodeURIComponent(externalId)}`;
+
+  const result = await initiatePay({
+    amount: pack.price_xaf,
+    email: user.email,
+    redirectUrl,
+    userId: String(userId),
+    externalId,
+    message: `Prodlyft — ${pack.name} (${pack.tokens.toLocaleString()} tokens)`,
   });
 
-  if (result.status !== "success") {
+  if (!result.ok) {
     await pool.query(
       `UPDATE payments SET status = 'failed', payload = $1, updated_at = NOW()
        WHERE app_transaction_ref = $2`,
-      [JSON.stringify(result), appRef],
+      [JSON.stringify({ provider: "fapshi", status: result.status, message: result.message }), externalId],
     );
     return NextResponse.json(
-      { error: (result as { message?: string }).message || "Payment provider rejected the request" },
+      { error: result.message || "Payment provider rejected the request" },
       { status: 502 },
     );
   }
 
+  // Store Fapshi's transId in the existing mcp_transaction_ref column.
+  // The column name is now a misnomer but renaming requires a schema
+  // migration; the value semantics are identical (their internal ref
+  // that we use for status lookups).
   await pool.query(
-    `UPDATE payments SET mcp_transaction_ref = $1, status = 'pending', updated_at = NOW()
-     WHERE app_transaction_ref = $2`,
-    [result.transaction_ref, appRef],
+    `UPDATE payments
+        SET mcp_transaction_ref = $1, status = 'pending', updated_at = NOW()
+      WHERE app_transaction_ref = $2`,
+    [result.transId, externalId],
   );
 
   return NextResponse.json({
-    payment_url: result.payment_url,
-    transaction_ref: result.transaction_ref,
-    app_transaction_ref: appRef,
+    payment_url: result.link,
+    transaction_ref: result.transId,
+    app_transaction_ref: externalId,
     pack: { id: pack.id, name: pack.name, tokens: pack.tokens },
   });
 }

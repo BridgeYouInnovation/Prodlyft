@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
-import { checkStatus } from "@/lib/mcp";
+import { checkPaymentStatus, mapStatus } from "@/lib/fapshi";
 import { creditTokens, getPack } from "@/lib/tokens";
 
 export const runtime = "nodejs";
@@ -62,21 +62,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // "your payment" vs generic copy. Mismatch is NOT an error here.
   const isOwner = Number.isFinite(userId) && p.user_id === userId;
 
-  // Reconcile when the row is stuck pending. Wait at least ~8 seconds since
-  // the row was created so the normal callback path gets first crack — no
-  // reason to hammer MCP for a payment that's about to confirm naturally.
+  // Reconcile when the row is stuck pending. Wait at least ~8 seconds
+  // since the row was last touched so the normal webhook path gets
+  // first crack — and so we stay well under Fapshi's 6 req/min/transId
+  // rate limit on /payment-status.
   const ageMs = Date.now() - new Date(p.updated_at).getTime();
   if ((p.status === "pending" || p.status === "created") && p.mcp_transaction_ref && ageMs > 8_000) {
     try {
-      const live = await checkStatus(p.mcp_transaction_ref);
-      if (live.status === "success") {
-        const mcpStatus = (live.transaction_status || "").toUpperCase();
-        const internalStatus =
-          mcpStatus === "SUCCESS"  ? "success"  :
-          mcpStatus === "CANCELED" ? "canceled" :
-          mcpStatus === "FAILED"   ? "failed"   :
-          mcpStatus === "PENDING"  ? "pending"  : "created";
-
+      const live = await checkPaymentStatus(p.mcp_transaction_ref);
+      if (live.ok) {
+        const internalStatus = mapStatus(live.status);
         if (internalStatus !== p.status) {
           await pool.query(
             `UPDATE payments
@@ -86,27 +81,29 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
               WHERE app_transaction_ref = $3`,
             [
               internalStatus,
-              JSON.stringify({ ...live, _via: "checkStatus_reconcile" }),
+              JSON.stringify({ provider: "fapshi", _via: "checkStatus_reconcile", ...live }),
               p.app_transaction_ref,
             ],
           );
           p.status = internalStatus;
 
-          // Credit tokens if MCP says SUCCESS and we haven't already.
-          // creditTokens is idempotent on (reason='purchase', ref_id) so
-          // even if the webhook arrives a second later we're safe.
+          // Credit tokens if Fapshi says SUCCESSFUL and we haven't
+          // already. The unique partial index on
+          // token_ledger(reason='purchase', ref_id) makes this
+          // idempotent — webhook + reconcile racing is safe.
           if (internalStatus === "success") {
             const pack = await getPack(p.plan);
-            if (pack && Number(live.transaction_amount) === pack.price_xaf) {
+            if (pack && Number(live.amount ?? 0) === pack.price_xaf) {
               await creditTokens(p.user_id, pack.tokens, "purchase", {
                 ref_type: "payment",
                 ref_id: p.app_transaction_ref,
                 meta: {
+                  provider: "fapshi",
                   pack_id: pack.id,
                   pack_name: pack.name,
                   xaf: pack.price_xaf,
-                  mcp_ref: live.transaction_ref,
-                  operator: live.transaction_operator,
+                  transId: live.transId,
+                  medium: live.medium,
                   via: "checkStatus_reconcile",
                 },
               });
@@ -115,15 +112,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         }
       }
     } catch (e) {
-      console.warn("[payment.poll] checkStatus reconcile failed:", e);
+      console.warn("[payment.poll] checkPaymentStatus reconcile failed:", e);
     }
   }
 
-  // Pull the operator out of whichever payload we have (callback or live
-  // checkStatus result) so the success page can show "paid via MTN MoMo".
+  // Pull the medium (MTN MoMo / Orange Money / etc.) out of whichever
+  // payload we have so the success page can show "paid via MTN MoMo".
   let operator: string | null = null;
   if (p.payload && typeof p.payload === "object") {
-    operator = (p.payload as { transaction_operator?: string }).transaction_operator || null;
+    const pp = p.payload as { medium?: string; transaction_operator?: string };
+    // Newer payloads from the Fapshi integration use `medium`; older
+    // rows from the My-CoolPay era used `transaction_operator`.
+    operator = pp.medium || pp.transaction_operator || null;
   }
 
   // Response shape — owner gets the full row, non-owners get only what

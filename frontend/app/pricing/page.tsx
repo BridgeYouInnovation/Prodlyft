@@ -270,7 +270,7 @@ export default function PricingPage() {
               </button>
               {currency !== "XAF" && (
                 <div className="text-[11px] text-muted-2 text-center mt-2">
-                  Charged as {p.price_xaf.toLocaleString()} FCFA via My-CoolPay
+                  Charged as {p.price_xaf.toLocaleString()} FCFA via Fapshi
                 </div>
               )}
             </div>
