@@ -119,30 +119,20 @@ def process_crawl(crawl_id: str) -> None:
         fetch_cap = FETCH_SAFETY_CAP if category_filter else (user_max or FETCH_SAFETY_CAP)
 
         # If the user asked for a catalog but the platform detector
-        # couldn't identify the storefront, fail loudly instead of
-        # silently downgrading to single-product mode. Previously a
-        # "max_products=10" on a custom-built shop returned 1 row of
-        # homepage garbage with no explanation — the user saw the
-        # cap as broken when really we'd given up on the catalog.
+        # couldn't identify the storefront, try the AI-driven catalog
+        # discovery path (Wix Stores, Squarespace Commerce, custom
+        # storefronts etc.). The LLM looks at the homepage and tells
+        # us where to find product pages — see ai_catalog.py.
+        # We only fail loudly if that ALSO comes up empty.
         if mode == "catalog" and platform == "other":
-            msg = (
-                "We couldn't identify this site as a Shopify, WooCommerce, "
-                "or known listings platform, so a multi-product extract "
-                "isn't possible. For a single product, paste the exact "
-                "product URL (e.g. https://site.com/products/widget-name) "
-                "and choose platform=Other. For a catalog, the site needs "
-                "to expose a recognised API."
-            )
-            _update(
-                crawl_id,
-                status="failed",
-                error=msg,
-                progress={"step": "platform_unknown"},
-                total=0,
-            )
-            return
+            from .ai_catalog import fetch_ai_catalog
+            def progress(done: int, total: int | None):
+                _update(crawl_id, progress={"step": "discovering" if done == 0 else "fetching", "done": done, "total": total})
+            _update(crawl_id, progress={"step": "discovering"})
+            products = fetch_ai_catalog(url, on_progress=progress, max_products=fetch_cap)
+            platform = "ai_catalog"  # so downstream logs/UI reflect what actually ran
 
-        if mode == "catalog" and platform == "shopify":
+        elif mode == "catalog" and platform == "shopify":
             def progress(done: int, total: int | None):
                 _update(crawl_id, progress={"step": "fetching", "done": done, "total": total})
             products = fetch_shopify_catalog(url, on_progress=progress, max_products=fetch_cap)
@@ -234,6 +224,15 @@ def process_crawl(crawl_id: str) -> None:
                     "but couldn't extract any listing cards. The theme may "
                     "render listings entirely with JavaScript or be using "
                     "a non-standard URL structure."
+                )
+            elif platform == "ai_catalog":
+                msg = (
+                    "We tried AI-driven catalog discovery on this site but "
+                    "couldn't find product pages we could extract. The site "
+                    "may render its catalog entirely with JavaScript, hide "
+                    "it behind a login, or use a structure our model didn't "
+                    "recognise. Try pasting a specific product URL with "
+                    "platform=Other for a single-product extract."
                 )
             else:
                 msg = (
