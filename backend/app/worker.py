@@ -118,6 +118,30 @@ def process_crawl(crawl_id: str) -> None:
         # param). Without a filter we can stop fetching once we have enough.
         fetch_cap = FETCH_SAFETY_CAP if category_filter else (user_max or FETCH_SAFETY_CAP)
 
+        # If the user asked for a catalog but the platform detector
+        # couldn't identify the storefront, fail loudly instead of
+        # silently downgrading to single-product mode. Previously a
+        # "max_products=10" on a custom-built shop returned 1 row of
+        # homepage garbage with no explanation — the user saw the
+        # cap as broken when really we'd given up on the catalog.
+        if mode == "catalog" and platform == "other":
+            msg = (
+                "We couldn't identify this site as a Shopify, WooCommerce, "
+                "or known listings platform, so a multi-product extract "
+                "isn't possible. For a single product, paste the exact "
+                "product URL (e.g. https://site.com/products/widget-name) "
+                "and choose platform=Other. For a catalog, the site needs "
+                "to expose a recognised API."
+            )
+            _update(
+                crawl_id,
+                status="failed",
+                error=msg,
+                progress={"step": "platform_unknown"},
+                total=0,
+            )
+            return
+
         if mode == "catalog" and platform == "shopify":
             def progress(done: int, total: int | None):
                 _update(crawl_id, progress={"step": "fetching", "done": done, "total": total})
