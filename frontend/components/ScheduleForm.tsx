@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Icons } from "@/components/Icons";
+import { KeywordGeneratorModal } from "@/components/KeywordGeneratorModal";
 import {
   CADENCE_LABEL,
   LENGTH_LABEL,
@@ -65,6 +66,8 @@ export function ScheduleForm({
   // will fire. -1 means admin / unlimited; null means we haven't
   // loaded it yet.
   const [tokens, setTokens] = useState<number | null>(null);
+  // Keyword-generator modal is opt-in (user clicks the button).
+  const [kwModalOpen, setKwModalOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/blogger/connections")
@@ -127,7 +130,12 @@ export function ScheduleForm({
     );
   }
 
+  // Reuse the human-friendly site label for the modal header.
+  const activeConn = conns.find((c) => c.id === connectionId);
+  const siteLabel = activeConn?.site_name || activeConn?.site_url;
+
   return (
+    <>
     <form onSubmit={handleSubmit} className="card p-5 grid gap-4">
       {helpText && <div className="text-[12.5px] text-muted -mt-1">{helpText}</div>}
       <div>
@@ -161,17 +169,28 @@ export function ScheduleForm({
         )}
       </div>
       <div>
-        <label className="label">Topics</label>
+        <div className="flex items-center gap-2 mb-1.5">
+          <label className="label !mb-0 flex-1">Keywords</label>
+          <button
+            type="button"
+            disabled={!connectionId}
+            onClick={() => setKwModalOpen(true)}
+            className="btn-sm"
+            title={connectionId ? "AI-generate keywords from your site" : "Pick a site first"}
+          >
+            <Icons.Sparkle size={12} /> Generate keywords
+          </button>
+        </div>
         <textarea
           className="input"
           rows={6}
           value={topicsText}
           onChange={(e) => setTopicsText(e.target.value)}
-          placeholder={"One topic per line, e.g.:\nHow to install a Mazda Miata coilover kit\nBest budget OBD2 scanners under $50\n10 winter prep tips for daily drivers"}
+          placeholder={"One keyword per line, e.g.:\nbest budget OBD2 scanners\nhow to install Miata coilovers\nwinter car prep checklist"}
           required
         />
         <div className="mt-1 text-[11.5px] text-muted-2">
-          {topics.length} topic{topics.length === 1 ? "" : "s"} parsed. We round-robin through them — each run picks the next one.
+          {topics.length} keyword{topics.length === 1 ? "" : "s"} parsed. We round-robin through them — each run picks the next one. Each keyword becomes one article&apos;s primary topic.
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -258,5 +277,23 @@ export function ScheduleForm({
         Cron ticks every 10 minutes. Each article costs 5 tokens (10 with featured image). Pause or delete a schedule any time.
       </div>
     </form>
+
+    {kwModalOpen && connectionId && (
+      <KeywordGeneratorModal
+        connectionId={connectionId}
+        siteLabel={siteLabel}
+        onUse={(picked) => {
+          // Append (don't replace) so the user keeps any keywords they
+          // typed in manually. Deduplicate against existing entries.
+          const existing = new Set(topics.map((t) => t.toLowerCase()));
+          const fresh = picked.filter((k) => !existing.has(k.toLowerCase()));
+          const merged = [...topics, ...fresh];
+          setTopicsText(merged.join("\n"));
+          setKwModalOpen(false);
+        }}
+        onClose={() => setKwModalOpen(false)}
+      />
+    )}
+    </>
   );
 }

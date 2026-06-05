@@ -1,5 +1,5 @@
 import { pool, findUserById } from "./db";
-import { LENGTH_WORDS, type LengthTarget, type PublishStatus } from "./blogger";
+import { LENGTH_MIN_WORDS, LENGTH_WORDS, type LengthTarget, type PublishStatus } from "./blogger";
 import { TOKEN_COSTS, getBalance, tryDebitTokens } from "./tokens";
 
 export class InsufficientTokensError extends Error {
@@ -187,11 +187,17 @@ async function callArticleModel(
 }
 
 export async function generateContent(input: GenerateContentInput): Promise<GeneratedContent> {
-  const words = LENGTH_WORDS[input.length] ?? 900;
+  const words = LENGTH_WORDS[input.length] ?? 1200;
+  const minWords = LENGTH_MIN_WORDS[input.length] ?? 1000;
   const userMsg = [
-    `Topic: ${input.topic}`,
+    `Topic / Keyword: ${input.topic}`,
     `Tone: ${input.tone?.trim() || "professional and engaging"}`,
     `Target length: ~${words} words`,
+    // Explicit minimum stops the LLM from happily turning a "long" post
+    // into 1100 words and calling it done. We re-state this as a hard
+    // floor so the model can't average it down.
+    `HARD MINIMUM: at least ${minWords} words. Posts below this will be rejected.`,
+    `SEO: treat the topic above as the primary keyword/phrase. Use it naturally in the title, the first paragraph, and at least one H2.`,
   ].join("\n");
 
   // Two-pass strategy: first call uses the normal system prompt. If we

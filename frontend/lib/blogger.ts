@@ -98,13 +98,24 @@ export const CADENCE_LABEL: Record<Cadence, string> = {
 };
 
 export const LENGTH_LABEL: Record<LengthTarget, string> = {
-  short: "Short (~500 words)",
-  medium: "Medium (~900 words)",
-  long: "Long (~1500 words)",
+  short: "Short (~600 words)",
+  medium: "Medium (1000-1300 words)",
+  long: "Long (2000+ words)",
 };
 
+/** Target word counts handed to the article-writer model. Mediums must
+ *  hit at least 1000 words; longs must clear 2000. We target slightly
+ *  above the floor because LLMs tend to undershoot prompts. */
 export const LENGTH_WORDS: Record<LengthTarget, number> = {
+  short: 600,
+  medium: 1200,
+  long: 2200,
+};
+
+/** Hard floors enforced in the system prompt — surface a clear "write
+ *  AT LEAST N" instruction so the model doesn't pad-then-truncate. */
+export const LENGTH_MIN_WORDS: Record<LengthTarget, number> = {
   short: 500,
-  medium: 900,
-  long: 1500,
+  medium: 1000,
+  long: 2000,
 };

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { Icons } from "@/components/Icons";
+import { KeywordGeneratorModal } from "@/components/KeywordGeneratorModal";
 import { LENGTH_LABEL, type LengthTarget, type PublishStatus, type WpConnection } from "@/lib/blogger";
 
 export default function NewArticlePage() {
@@ -17,6 +18,7 @@ export default function NewArticlePage() {
   const [withImage, setWithImage] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [kwModalOpen, setKwModalOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/blogger/connections")
@@ -31,7 +33,7 @@ export default function NewArticlePage() {
     e.preventDefault();
     setErr(null);
     if (!connectionId || !topic.trim()) {
-      setErr("Pick a site and enter a topic.");
+      setErr("Pick a site and enter a keyword.");
       return;
     }
     setSubmitting(true);
@@ -93,14 +95,28 @@ export default function NewArticlePage() {
                 </select>
               </div>
               <div>
-                <label className="label">Topic</label>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <label className="label !mb-0 flex-1">Keyword</label>
+                  <button
+                    type="button"
+                    disabled={!connectionId}
+                    onClick={() => setKwModalOpen(true)}
+                    className="btn-sm"
+                    title={connectionId ? "AI-generate keyword ideas from your site" : "Pick a site first"}
+                  >
+                    <Icons.Sparkle size={12} /> Generate keywords
+                  </button>
+                </div>
                 <input
                   className="input"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="e.g. How to choose the right WooCommerce shipping plugin"
+                  placeholder="e.g. best WooCommerce shipping plugin"
                   required
                 />
+                <div className="mt-1 text-[11.5px] text-muted-2">
+                  This is the primary keyword the article will target — used in the title, intro, and an H2.
+                </div>
               </div>
               <div>
                 <label className="label">Tone <span className="text-muted-2 font-normal">(optional)</span></label>
@@ -146,6 +162,21 @@ export default function NewArticlePage() {
           )}
         </div>
       </div>
+
+      {kwModalOpen && connectionId && (
+        <KeywordGeneratorModal
+          connectionId={connectionId}
+          siteLabel={conns.find((c) => c.id === connectionId)?.site_name || conns.find((c) => c.id === connectionId)?.site_url}
+          onUse={(picked) => {
+            // One-off article only takes a single keyword — drop the
+            // first pick into the input; user can swap it out if they
+            // want a different one.
+            if (picked.length > 0) setTopic(picked[0]);
+            setKwModalOpen(false);
+          }}
+          onClose={() => setKwModalOpen(false)}
+        />
+      )}
     </Shell>
   );
 }
