@@ -2,8 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
 import { escapeHtml, sendEmail, supportEmail } from "@/lib/email";
+import {
+  type AttachmentMeta,
+  type IncomingAttachment,
+  type DecodedAttachment,
+  decodeAttachment,
+  insertAttachments,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+} from "@/lib/ticket-attachments";
 
 export const runtime = "nodejs";
+// Up to 4 × 5MB attachments per request — give serverless enough room.
+export const maxDuration = 60;
 
 function newId(prefix: string): string {
   const buf = crypto.getRandomValues(new Uint8Array(9));
@@ -52,7 +62,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
 
-  let body: { subject?: string; body?: string; related_crawl_id?: string | null } = {};
+  let body: {
+    subject?: string;
+    body?: string;
+    related_crawl_id?: string | null;
+    attachments?: IncomingAttachment[];
+  } = {};
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -61,9 +76,29 @@ export async function POST(req: NextRequest) {
   if (!subject) return NextResponse.json({ error: "Subject required" }, { status: 400 });
   if (!text)    return NextResponse.json({ error: "Message required" }, { status: 400 });
 
+  // Validate attachments up-front so a bad payload doesn't leave a
+  // half-created ticket behind.
+  const rawAtts = Array.isArray(body.attachments) ? body.attachments : [];
+  if (rawAtts.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    return NextResponse.json(
+      { error: `Too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE} per message)` },
+      { status: 400 },
+    );
+  }
+  const decoded: DecodedAttachment[] = [];
+  for (const att of rawAtts) {
+    const res = decodeAttachment(att);
+    if (typeof res === "string") {
+      return NextResponse.json({ error: `Attachment rejected: ${res}` }, { status: 400 });
+    }
+    decoded.push(res);
+  }
+
   const ticketId = newId("tk_");
   const messageId = newId("msg_");
   const relatedCrawl = body.related_crawl_id?.trim() || null;
+  const origin = req.headers.get("origin") || `https://${req.headers.get("host") || "prodlyft.com"}`;
+  let savedAttachments: AttachmentMeta[] = [];
 
   const client = await pool.connect();
   try {
@@ -79,6 +114,9 @@ export async function POST(req: NextRequest) {
        VALUES ($1, $2, $3, 'user', $4)`,
       [messageId, ticketId, userId, text],
     );
+    if (decoded.length > 0) {
+      savedAttachments = await insertAttachments(messageId, decoded, origin, client);
+    }
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
@@ -98,8 +136,12 @@ export async function POST(req: NextRequest) {
   let sendResult: Awaited<ReturnType<typeof sendEmail>> | null = null;
   if (inbox) {
     const userEmail = (session.user.email || "").trim();
-    const origin = req.headers.get("origin") || "https://prodlyft.com";
     const ticketUrl = `${origin}/admin/tickets/${ticketId}`;
+    const attCount = savedAttachments.length;
+    const attLineText = attCount > 0 ? `\nAttached: ${attCount} image${attCount === 1 ? "" : "s"}\n` : "";
+    const attLineHtml = attCount > 0
+      ? `<p style="color:#666"><strong>Attached:</strong> ${attCount} image${attCount === 1 ? "" : "s"} — view in admin</p>`
+      : "";
     sendResult = await sendEmail({
       to: inbox,
       subject: `[Prodlyft ticket] ${subject}`,
@@ -107,7 +149,7 @@ export async function POST(req: NextRequest) {
       text:
         `New support ticket from ${userEmail || "user #" + userId}\n\n` +
         `Subject: ${subject}\n\n` +
-        `${text}\n\n` +
+        `${text}\n${attLineText}\n` +
         `Open in admin: ${ticketUrl}\n`,
       html:
         `<div style="font-family:system-ui,sans-serif;line-height:1.5">` +
@@ -115,6 +157,7 @@ export async function POST(req: NextRequest) {
         `${userEmail ? `<a href="mailto:${escapeHtml(userEmail)}">${escapeHtml(userEmail)}</a>` : `user #${userId}`}</p>` +
         `<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>` +
         `<blockquote style="border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin:12px 0">${escapeHtml(text)}</blockquote>` +
+        attLineHtml +
         `<p><a href="${escapeHtml(ticketUrl)}">Open in admin</a></p>` +
         `</div>`,
     });

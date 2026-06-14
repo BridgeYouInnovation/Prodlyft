@@ -16,6 +16,18 @@ export interface Ticket {
   unread_for_user?: number;
 }
 
+export interface MessageAttachment {
+  id: string;
+  message_id: string;
+  filename: string | null;
+  content_type: string;
+  size_bytes: number;
+  /** Public proxy URL (`/api/tickets/attachments/[id]`) the UI uses
+   *  for the <img src>. */
+  url: string;
+  created_at: string;
+}
+
 export interface TicketMessage {
   id: string;
   ticket_id: string;
@@ -23,6 +35,7 @@ export interface TicketMessage {
   sender_role: "user" | "admin";
   body: string;
   created_at: string;
+  attachments?: MessageAttachment[];
 }
 
 export const STATUS_LABEL: Record<TicketStatus, string> = {

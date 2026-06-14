@@ -176,6 +176,21 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON ticket_messages(ticket_id, created_at);
 
+-- Image attachments for support tickets. Bytes stored as BYTEA so we
+-- don't need Blob storage or S3. Served via the public proxy at
+-- /api/tickets/attachments/<id> — the id is unguessable (72 bits of
+-- entropy) so possessing the URL IS the auth.
+CREATE TABLE IF NOT EXISTS ticket_attachments (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES ticket_messages(id) ON DELETE CASCADE,
+  filename TEXT,
+  content_type VARCHAR(80) NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data BYTEA NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_attachments_msg ON ticket_attachments(message_id);
+
 -- Auto Blogger: connection from a Prodlyft user to one of their WordPress
 -- sites, plus the schedules and articles produced through that link.
 CREATE TABLE IF NOT EXISTS wp_connections (

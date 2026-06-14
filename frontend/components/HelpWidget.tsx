@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Icons } from "./Icons";
+import { AttachmentPicker, type PendingAttachment } from "./AttachmentPicker";
 
 /**
  * Floating help button rendered on every page (mounted from the root
@@ -17,6 +18,7 @@ export function HelpWidget() {
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [sentId, setSentId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -55,13 +57,27 @@ export function HelpWidget() {
       const r = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: subject.trim(), body: message.trim() }),
+        body: JSON.stringify({
+          subject: subject.trim(),
+          body: message.trim(),
+          attachments: attachments.map((a) => ({
+            filename: a.filename,
+            content_type: a.content_type,
+            data_url: a.data_url,
+          })),
+        }),
       });
       const data = (await r.json()) as { id?: string; error?: string };
       if (!r.ok || !data.id) throw new Error(data.error || `HTTP ${r.status}`);
       setSentId(data.id);
       setSubject("");
       setMessage("");
+      // Release the preview Object URLs we created so the browser
+      // doesn't keep the blobs in memory.
+      for (const a of attachments) {
+        try { URL.revokeObjectURL(a.preview_url); } catch { /* ignore */ }
+      }
+      setAttachments([]);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -149,12 +165,13 @@ export function HelpWidget() {
               <textarea
                 className="input"
                 rows={5}
-                placeholder="What's going on? Paste URLs or screenshots URLs if it helps."
+                placeholder="What's going on? Attach screenshots below if it helps."
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 maxLength={4000}
                 required
               />
+              <AttachmentPicker value={attachments} onChange={setAttachments} />
               {err && (
                 <div className="text-[12px] text-warn-ink bg-warn-soft rounded-md px-2 py-1.5">
                   {err}

@@ -1,5 +1,6 @@
 "use client";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { AttachmentPicker, type PendingAttachment } from "./AttachmentPicker";
 import {
   STATUS_CHIP,
   STATUS_LABEL,
@@ -37,6 +38,7 @@ export function TicketThread({
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -70,20 +72,34 @@ export function TicketThread({
   async function send(e: FormEvent) {
     e.preventDefault();
     const body = draft.trim();
-    if (!body || sending) return;
+    // Empty text is fine if the user is attaching images (screenshot-
+    // only replies are common after a previous question framed it).
+    if ((!body && attachments.length === 0) || sending) return;
     setSending(true);
     setErr(null);
     try {
       const r = await fetch(messagesBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({
+          body,
+          attachments: attachments.map((a) => ({
+            filename: a.filename,
+            content_type: a.content_type,
+            data_url: a.data_url,
+          })),
+        }),
       });
       if (!r.ok) {
         const d = (await r.json().catch(() => ({}))) as { error?: string };
         throw new Error(d.error || `HTTP ${r.status}`);
       }
       setDraft("");
+      // Release blob URLs we created for thumbnails.
+      for (const a of attachments) {
+        try { URL.revokeObjectURL(a.preview_url); } catch { /* ignore */ }
+      }
+      setAttachments([]);
       await load();
     } catch (e) {
       setErr((e as Error).message);
@@ -170,7 +186,43 @@ export function TicketThread({
                   <div className="text-[10.5px] uppercase tracking-wider opacity-70 mb-1 font-mono">
                     {mine ? "You" : fromAdmin ? "Prodlyft team" : "User"} · {timeAgo(m.created_at)}
                   </div>
-                  {m.body}
+                  {m.body && <div>{m.body}</div>}
+                  {m.attachments && m.attachments.length > 0 && (
+                    <div
+                      className={`grid gap-1.5 ${m.body ? "mt-2" : ""}`}
+                      style={{
+                        gridTemplateColumns: `repeat(${Math.min(2, m.attachments.length)}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {m.attachments.map((att) => (
+                        <a
+                          key={att.id}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`${att.filename || "Attachment"} (${(att.size_bytes / 1024).toFixed(0)}k) — open full size`}
+                          className="block rounded-md overflow-hidden"
+                          style={{
+                            background: "rgba(0,0,0,0.06)",
+                            border: mine ? "1px solid rgba(255,255,255,0.15)" : "1px solid var(--line)",
+                          }}
+                        >
+                          <img
+                            src={att.url}
+                            alt={att.filename || "attachment"}
+                            loading="lazy"
+                            style={{
+                              display: "block",
+                              width: "100%",
+                              maxHeight: 280,
+                              objectFit: "contain",
+                              background: "#fff",
+                            }}
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -185,24 +237,31 @@ export function TicketThread({
           This ticket is closed. {isAdmin ? "Re-open it above to reply." : "Open a new ticket if you need more help."}
         </div>
       ) : (
-        <form onSubmit={send} className="card p-3 flex gap-2 items-end">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                send(e as unknown as FormEvent);
-              }
-            }}
-            placeholder={isAdmin ? "Reply to the user…" : "Type your message…"}
-            rows={2}
-            className="input flex-1"
-            style={{ resize: "vertical" }}
-          />
-          <button type="submit" disabled={sending || !draft.trim()} className="btn-primary btn-lg">
-            {sending ? "Sending…" : "Send"}
-          </button>
+        <form onSubmit={send} className="card p-3 flex flex-col gap-2">
+          <div className="flex gap-2 items-end">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  send(e as unknown as FormEvent);
+                }
+              }}
+              placeholder={isAdmin ? "Reply to the user…" : "Type your message…"}
+              rows={2}
+              className="input flex-1"
+              style={{ resize: "vertical" }}
+            />
+            <button
+              type="submit"
+              disabled={sending || (!draft.trim() && attachments.length === 0)}
+              className="btn-primary btn-lg"
+            >
+              {sending ? "Sending…" : "Send"}
+            </button>
+          </div>
+          <AttachmentPicker value={attachments} onChange={setAttachments} />
         </form>
       )}
 

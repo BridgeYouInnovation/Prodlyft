@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
+import { attachmentsByMessageIds } from "@/lib/ticket-attachments";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ async function owns(ticketId: string, userId: number, isAdmin: boolean): Promise
  * GET /api/tickets/[id] — fetch one ticket plus its full message thread.
  * Marks all admin messages as "seen" by stamping last_user_view_at.
  */
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   const su = session?.user as { id?: string | number; is_admin?: boolean } | undefined;
   const userId = Number(su?.id);
@@ -27,12 +28,24 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const check = await owns(id, userId, isAdmin);
   if (!check.ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const messages = await pool.query(
+  const messages = await pool.query<{
+    id: string; ticket_id: string; sender_user_id: number;
+    sender_role: string; body: string; created_at: string;
+  }>(
     `SELECT id, ticket_id, sender_user_id, sender_role, body, created_at
      FROM ticket_messages WHERE ticket_id = $1
      ORDER BY created_at ASC`,
     [id],
   );
+
+  // Pull attachments for every message in one shot and attach them as
+  // an inline `attachments` field. Empty array when a message has none.
+  const origin = req.headers.get("origin") || `https://${req.headers.get("host") || "prodlyft.com"}`;
+  const attMap = await attachmentsByMessageIds(messages.rows.map((m) => m.id), origin);
+  const withAttachments = messages.rows.map((m) => ({
+    ...m,
+    attachments: attMap[m.id] || [],
+  }));
 
   // Stamp the appropriate "last viewed" so unread counts collapse.
   if (isAdmin) {
@@ -41,7 +54,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     await pool.query("UPDATE tickets SET last_user_view_at = NOW() WHERE id = $1", [id]);
   }
 
-  return NextResponse.json({ ticket: check.ticket, messages: messages.rows });
+  return NextResponse.json({ ticket: check.ticket, messages: withAttachments });
 }
 
 /**

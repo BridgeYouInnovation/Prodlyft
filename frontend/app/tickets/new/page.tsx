@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { Icons } from "@/components/Icons";
+import { AttachmentPicker, type PendingAttachment } from "@/components/AttachmentPicker";
 
 export default function NewTicketPage() {
   return (
@@ -29,6 +30,7 @@ function Body() {
   );
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -42,7 +44,16 @@ function Body() {
       const r = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject: subject.trim(), body: body.trim(), related_crawl_id: crawlId }),
+        body: JSON.stringify({
+          subject: subject.trim(),
+          body: body.trim(),
+          related_crawl_id: crawlId,
+          attachments: attachments.map((a) => ({
+            filename: a.filename,
+            content_type: a.content_type,
+            data_url: a.data_url,
+          })),
+        }),
       });
       if (!r.ok) {
         const d = (await r.json().catch(() => ({}))) as { error?: string };
@@ -100,6 +111,10 @@ function Body() {
               placeholder="What were you trying to do? What happened instead?"
               required
             />
+          </div>
+          <div>
+            <label className="label">Screenshots <span className="text-muted-2 font-normal">(optional)</span></label>
+            <AttachmentPicker value={attachments} onChange={setAttachments} />
           </div>
           <div className="flex gap-2 justify-end">
             <Link href="/tickets" className="btn">Cancel</Link>

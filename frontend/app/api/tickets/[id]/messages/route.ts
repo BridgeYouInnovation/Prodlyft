@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/db";
 import { escapeHtml, sendEmail, supportEmail } from "@/lib/email";
+import {
+  type AttachmentMeta,
+  type DecodedAttachment,
+  type IncomingAttachment,
+  decodeAttachment,
+  insertAttachments,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+} from "@/lib/ticket-attachments";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 function newId(): string {
   const buf = crypto.getRandomValues(new Uint8Array(9));
@@ -32,11 +41,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { body?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    body?: string;
+    attachments?: IncomingAttachment[];
+  };
   const text = (body.body || "").trim();
-  if (!text) return NextResponse.json({ error: "Message required" }, { status: 400 });
+  // Message body OR at least one attachment must be present —
+  // image-only replies are a real use case (just dropping a screenshot
+  // after the previous turn already laid out the question).
+  const rawAtts = Array.isArray(body.attachments) ? body.attachments : [];
+  if (!text && rawAtts.length === 0) {
+    return NextResponse.json({ error: "Message or attachment required" }, { status: 400 });
+  }
+  if (rawAtts.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    return NextResponse.json(
+      { error: `Too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE} per message)` },
+      { status: 400 },
+    );
+  }
+  const decoded: DecodedAttachment[] = [];
+  for (const att of rawAtts) {
+    const res = decodeAttachment(att);
+    if (typeof res === "string") {
+      return NextResponse.json({ error: `Attachment rejected: ${res}` }, { status: 400 });
+    }
+    decoded.push(res);
+  }
 
   const newStatus = isAdmin ? "waiting_user" : "waiting_admin";
+  const messageId = newId();
+  const origin = req.headers.get("origin") || `https://${req.headers.get("host") || "prodlyft.com"}`;
+  let savedAttachments: AttachmentMeta[] = [];
 
   const client = await pool.connect();
   try {
@@ -44,8 +79,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await client.query(
       `INSERT INTO ticket_messages (id, ticket_id, sender_user_id, sender_role, body)
        VALUES ($1, $2, $3, $4, $5)`,
-      [newId(), id, userId, isAdmin ? "admin" : "user", text],
+      [messageId, id, userId, isAdmin ? "admin" : "user", text],
     );
+    if (decoded.length > 0) {
+      savedAttachments = await insertAttachments(messageId, decoded, origin, client);
+    }
     await client.query(
       `UPDATE tickets SET status = $1, updated_at = NOW(),
                           ${isAdmin ? "last_admin_view_at" : "last_user_view_at"} = NOW()
@@ -59,6 +97,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } finally {
     client.release();
   }
+  // Track how many attachments landed so the email notification can
+  // mention them.
+  const attCount = savedAttachments.length;
   // Notify the OTHER side via email. User reply → admin inbox; admin
   // reply → user's account email. Both are best-effort.
   try {
@@ -83,6 +124,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           `<p><strong>New ticket reply</strong> from ` +
           `${userEmail ? `<a href="mailto:${escapeHtml(userEmail)}">${escapeHtml(userEmail)}</a>` : `user #${userId}`}</p>` +
           `<blockquote style="border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin:12px 0">${escapeHtml(text)}</blockquote>` +
+          (attCount > 0
+            ? `<p style="color:#666"><strong>Attached:</strong> ${attCount} image${attCount === 1 ? "" : "s"} — view in admin</p>`
+            : "") +
           `<p><a href="${escapeHtml(url)}">Open ticket</a></p>` +
           `</div>`,
       });
@@ -116,5 +160,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     console.warn("[tickets.message] email notification failed:", (e as Error).message);
   }
 
-  return NextResponse.json({ ok: true }, { status: 201 });
+  return NextResponse.json({ ok: true, attachments: savedAttachments }, { status: 201 });
 }
