@@ -80,8 +80,9 @@ def detect_platform(url: str, timeout: float = 10.0) -> str:
         #    listings-CPT site), >0 means it's a real Woo store.
         wp_likely = False
         woo_result_count: int | None = None
+        woo_url = urljoin(base, "/wp-json/wc/store/v1/products")
         try:
-            r = c.get(urljoin(base, "/wp-json/wc/store/v1/products"), params={"per_page": 1})
+            r = c.get(woo_url, params={"per_page": 1})
             if r.status_code == 200:
                 data = r.json()
                 if isinstance(data, list):
@@ -91,6 +92,18 @@ def detect_platform(url: str, timeout: float = 10.0) -> str:
                     # Endpoint exists but empty — definitely WordPress;
                     # fall through to listings detection.
                     wp_likely = True
+            elif r.status_code in (403, 406, 429, 503):
+                # WAF likely blocked us (e.g. Imunify360 / cPGuard /
+                # mod_security 403). Try once more via Firecrawl, which
+                # uses residential IPs + a real browser fingerprint.
+                from . import firecrawl as _fc
+                if _fc.is_enabled():
+                    data = _fc.fetch_json(woo_url + "?per_page=1")
+                    if isinstance(data, list):
+                        woo_result_count = len(data)
+                        if woo_result_count > 0:
+                            return "woocommerce"
+                        wp_likely = True
         except Exception:
             pass
 
@@ -224,10 +237,35 @@ def fetch_shopify_catalog(
     out: list[dict] = []
     page = 1
     with httpx.Client(follow_redirects=True, timeout=30.0, headers=headers) as c:
+        # Same WAF-fallback pattern as fetch_woocommerce_catalog — once
+        # a direct GET is blocked we route the rest of the walk through
+        # Firecrawl. Cost stays bounded (per-page).
+        use_firecrawl = False
         while len(out) < max_products:
-            r = c.get(urljoin(base, "/products.json"), params={"limit": 250, "page": page})
-            r.raise_for_status()
-            data = r.json() or {}
+            page_url = urljoin(base, "/products.json")
+            data: dict | None = None
+            if not use_firecrawl:
+                try:
+                    r = c.get(page_url, params={"limit": 250, "page": page})
+                except Exception:
+                    r = None
+                if r is not None and r.status_code == 200:
+                    data = r.json() or {}
+                elif r is not None and r.status_code in (403, 406, 429, 503):
+                    use_firecrawl = True
+                else:
+                    break
+            if use_firecrawl:
+                from . import firecrawl as _fc
+                if not _fc.is_enabled():
+                    break
+                fc_data = _fc.fetch_json(f"{page_url}?limit=250&page={page}")
+                if not isinstance(fc_data, dict):
+                    break
+                data = fc_data
+
+            if data is None:
+                break
             batch = data.get("products") or []
             if not batch:
                 break
@@ -291,25 +329,60 @@ def fetch_woocommerce_catalog(
     on_progress: Callable[[int, int | None], None] | None = None,
     max_products: int = 10000,
 ) -> list[dict]:
+    """Walk the Woo Store API. When a direct fetch is blocked (403 /
+    406 / 429 / 503 — typical for shared-hosting WAFs like Imunify360
+    or cPGuard) we fall back to Firecrawl for that page, which uses
+    residential IPs + a real browser fingerprint and gets through.
+
+    Firecrawl is per-page so the cost stays bounded: a 5000-product
+    catalog only costs ~50 Firecrawl credits in the WAF-blocked case,
+    vs 0 in the happy path.
+    """
     base = normalize_base(url)
     headers = {"User-Agent": USER_AGENT}
     out: list[dict] = []
     page = 1
     total_expected: int | None = None
+    # Once we've established that direct fetches go through, we keep
+    # using them; once one fails, we switch to Firecrawl for ALL further
+    # pages (no point re-probing the WAF on every request).
+    use_firecrawl = False
     with httpx.Client(follow_redirects=True, timeout=30.0, headers=headers) as c:
         while len(out) < max_products:
-            r = c.get(
-                urljoin(base, "/wp-json/wc/store/v1/products"),
-                params={"per_page": 100, "page": page},
-            )
-            if r.status_code != 200:
-                break
-            if total_expected is None:
+            page_url = urljoin(base, "/wp-json/wc/store/v1/products")
+            batch: list | None = None
+            if not use_firecrawl:
                 try:
-                    total_expected = int(r.headers.get("X-WP-Total") or r.headers.get("x-wp-total") or 0) or None
-                except ValueError:
-                    total_expected = None
-            batch = r.json() or []
+                    r = c.get(page_url, params={"per_page": 100, "page": page})
+                except Exception:
+                    r = None
+                if r is not None and r.status_code == 200:
+                    if total_expected is None:
+                        try:
+                            total_expected = int(r.headers.get("X-WP-Total") or r.headers.get("x-wp-total") or 0) or None
+                        except ValueError:
+                            total_expected = None
+                    batch = r.json() or []
+                elif r is not None and r.status_code in (403, 406, 429, 503):
+                    use_firecrawl = True
+                else:
+                    break
+
+            if use_firecrawl:
+                from . import firecrawl as _fc
+                if not _fc.is_enabled():
+                    # No Firecrawl key configured — give up on whatever
+                    # we've already collected. Caller falls back to a
+                    # "0 products" / "couldn't catalog" message.
+                    break
+                fc_url = f"{page_url}?per_page=100&page={page}"
+                data = _fc.fetch_json(fc_url)
+                if not isinstance(data, list):
+                    break
+                batch = data
+
+            if batch is None:
+                break
             if not batch:
                 break
             for p in batch:

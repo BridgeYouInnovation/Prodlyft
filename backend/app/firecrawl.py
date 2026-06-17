@@ -125,3 +125,56 @@ def _to_number(v: Any) -> float | None:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def fetch_raw(url: str, timeout: float = 60.0) -> str | None:
+    """Fetch the raw response body of a URL via Firecrawl. Used as a
+    fallback when a site's WAF returns 403 to our direct httpx call but
+    lets Firecrawl through (residential IPs + real browser fingerprint).
+
+    Works equally well for HTML pages AND for JSON API endpoints —
+    Firecrawl's rawHtml format returns the body verbatim regardless of
+    declared content-type. Caller decides how to parse it.
+
+    Returns the body string on success, None on any failure.
+    """
+    settings = get_settings()
+    if not settings.firecrawl_api_key:
+        return None
+    base = settings.firecrawl_base_url.rstrip("/")
+    try:
+        with httpx.Client(timeout=timeout) as c:
+            r = c.post(
+                f"{base}/v1/scrape",
+                headers={
+                    "Authorization": f"Bearer {settings.firecrawl_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"url": url, "formats": ["rawHtml"]},
+            )
+        if r.status_code != 200:
+            print(f"[firecrawl.raw] http={r.status_code} body={r.text[:240]}", flush=True)
+            return None
+        body = r.json()
+    except Exception as e:
+        print(f"[firecrawl.raw] exception: {e}", flush=True)
+        return None
+    if not body.get("success"):
+        print(f"[firecrawl.raw] !success body={json.dumps(body)[:240]}", flush=True)
+        return None
+    raw = (body.get("data") or {}).get("rawHtml")
+    return raw if isinstance(raw, str) and raw.strip() else None
+
+
+def fetch_json(url: str, timeout: float = 60.0) -> Any:
+    """Like fetch_raw but parses the body as JSON. Returns the parsed
+    value (could be list, dict, etc.), or None on fetch/parse failure.
+    """
+    raw = fetch_raw(url, timeout=timeout)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError) as e:
+        print(f"[firecrawl.json] parse error: {e}; head={raw[:120]!r}", flush=True)
+        return None
