@@ -81,31 +81,58 @@ def detect_platform(url: str, timeout: float = 10.0) -> str:
         wp_likely = False
         woo_result_count: int | None = None
         woo_url = urljoin(base, "/wp-json/wc/store/v1/products")
+        direct_failed = False
         try:
             r = c.get(woo_url, params={"per_page": 1})
             if r.status_code == 200:
-                data = r.json()
+                # The site might still hand us HTML on a "200" response
+                # if its anti-bot serves a challenge page with status
+                # 200. Probe the parsed body shape, not the status code.
+                try:
+                    data = r.json()
+                except Exception:
+                    data = None
                 if isinstance(data, list):
                     woo_result_count = len(data)
                     if woo_result_count > 0:
                         return "woocommerce"
-                    # Endpoint exists but empty — definitely WordPress;
-                    # fall through to listings detection.
                     wp_likely = True
-            elif r.status_code in (403, 406, 429, 503):
-                # WAF likely blocked us (e.g. Imunify360 / cPGuard /
-                # mod_security 403). Try once more via Firecrawl, which
-                # uses residential IPs + a real browser fingerprint.
+                else:
+                    direct_failed = True
+            else:
+                direct_failed = True
+            print(
+                f"[detect_platform] woo probe {woo_url} → "
+                f"http={r.status_code} ct={r.headers.get('content-type', '?')[:40]} "
+                f"direct_failed={direct_failed}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[detect_platform] woo probe exception: {e}", flush=True)
+            direct_failed = True
+
+        if direct_failed:
+            # WAF / anti-bot likely blocked us. Try once more via
+            # Firecrawl, which uses residential IPs + a real browser
+            # fingerprint and gets through. Catches the full range of
+            # WAF responses — 403 (Imunify/mod_security), 202
+            # (Cloudflare/Imperva interstitial), 200-with-HTML
+            # (in-line challenge), 406 (Wordfence), 429 (rate-limit),
+            # 503 (overload page) — by triggering on anything that
+            # isn't a parseable JSON array.
+            try:
                 from . import firecrawl as _fc
                 if _fc.is_enabled():
+                    print(f"[detect_platform] retrying woo probe via Firecrawl", flush=True)
                     data = _fc.fetch_json(woo_url + "?per_page=1")
                     if isinstance(data, list):
                         woo_result_count = len(data)
+                        print(f"[detect_platform] Firecrawl returned {woo_result_count} item(s)", flush=True)
                         if woo_result_count > 0:
                             return "woocommerce"
                         wp_likely = True
-        except Exception:
-            pass
+            except Exception as e:
+                print(f"[detect_platform] Firecrawl woo fallback exception: {e}", flush=True)
 
         # 3. Heuristic: fetch HTML, look for markers
         html = ""
@@ -247,20 +274,31 @@ def fetch_shopify_catalog(
             if not use_firecrawl:
                 try:
                     r = c.get(page_url, params={"limit": 250, "page": page})
-                except Exception:
+                except Exception as e:
+                    print(f"[shopify.fetch] direct exception page={page}: {e}", flush=True)
                     r = None
                 if r is not None and r.status_code == 200:
-                    data = r.json() or {}
-                elif r is not None and r.status_code in (403, 406, 429, 503):
-                    use_firecrawl = True
+                    try:
+                        parsed = r.json()
+                    except Exception:
+                        parsed = None
+                    if isinstance(parsed, dict) and "products" in parsed:
+                        data = parsed
+                    else:
+                        print(f"[shopify.fetch] page={page} body wasn't a Shopify response; switching to Firecrawl", flush=True)
+                        use_firecrawl = True
                 else:
-                    break
-            if use_firecrawl:
+                    status = r.status_code if r is not None else "(no response)"
+                    print(f"[shopify.fetch] page={page} status={status}; switching to Firecrawl", flush=True)
+                    use_firecrawl = True
+            if use_firecrawl and data is None:
                 from . import firecrawl as _fc
                 if not _fc.is_enabled():
+                    print("[shopify.fetch] Firecrawl not configured; giving up", flush=True)
                     break
                 fc_data = _fc.fetch_json(f"{page_url}?limit=250&page={page}")
                 if not isinstance(fc_data, dict):
+                    print(f"[shopify.fetch] Firecrawl page={page} returned non-dict; giving up", flush=True)
                     break
                 data = fc_data
 
@@ -354,36 +392,53 @@ def fetch_woocommerce_catalog(
             if not use_firecrawl:
                 try:
                     r = c.get(page_url, params={"per_page": 100, "page": page})
-                except Exception:
+                except Exception as e:
+                    print(f"[woo.fetch] direct exception page={page}: {e}", flush=True)
                     r = None
+                # Treat anything that isn't a 200 with a parseable JSON
+                # array as a WAF block. The same logic as detect_platform.
                 if r is not None and r.status_code == 200:
-                    if total_expected is None:
-                        try:
-                            total_expected = int(r.headers.get("X-WP-Total") or r.headers.get("x-wp-total") or 0) or None
-                        except ValueError:
-                            total_expected = None
-                    batch = r.json() or []
-                elif r is not None and r.status_code in (403, 406, 429, 503):
-                    use_firecrawl = True
+                    try:
+                        parsed = r.json()
+                    except Exception:
+                        parsed = None
+                    if isinstance(parsed, list):
+                        if total_expected is None:
+                            try:
+                                total_expected = int(r.headers.get("X-WP-Total") or r.headers.get("x-wp-total") or 0) or None
+                            except ValueError:
+                                total_expected = None
+                        batch = parsed
+                    else:
+                        print(
+                            f"[woo.fetch] direct page={page} returned 200 but "
+                            f"body wasn't a JSON list (ct={r.headers.get('content-type', '?')[:40]}); "
+                            f"switching to Firecrawl",
+                            flush=True,
+                        )
+                        use_firecrawl = True
                 else:
-                    break
+                    status = r.status_code if r is not None else "(no response)"
+                    print(
+                        f"[woo.fetch] direct page={page} status={status}; switching to Firecrawl",
+                        flush=True,
+                    )
+                    use_firecrawl = True
 
-            if use_firecrawl:
+            if use_firecrawl and batch is None:
                 from . import firecrawl as _fc
                 if not _fc.is_enabled():
-                    # No Firecrawl key configured — give up on whatever
-                    # we've already collected. Caller falls back to a
-                    # "0 products" / "couldn't catalog" message.
+                    print("[woo.fetch] Firecrawl not configured; giving up", flush=True)
                     break
                 fc_url = f"{page_url}?per_page=100&page={page}"
                 data = _fc.fetch_json(fc_url)
                 if not isinstance(data, list):
+                    print(f"[woo.fetch] Firecrawl page={page} returned non-list; giving up", flush=True)
                     break
                 batch = data
+                print(f"[woo.fetch] Firecrawl page={page} returned {len(batch)} products", flush=True)
 
-            if batch is None:
-                break
-            if not batch:
+            if batch is None or not batch:
                 break
             for p in batch:
                 out.append(_woo_to_product(p, base))
