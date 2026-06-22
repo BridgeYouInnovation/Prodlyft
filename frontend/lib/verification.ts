@@ -15,12 +15,24 @@ export const VERIFICATION_TTL_HOURS = 24;
 export const RESEND_COOLDOWN_SECONDS = 60;
 
 /**
- * Idempotent schema bootstrap. Two things:
- *  - Ensures `verification_token` exists (NextAuth would have created
- *    it, but a fresh DB without their adapter wouldn't have).
- *  - Backfills existing user accounts to `emailVerified = NOW()` so
- *    rolling verification out doesn't lock current users out of their
- *    own accounts. Runs once per Node process.
+ * Idempotent schema bootstrap. Ensures `verification_token` exists
+ * (NextAuth would have created it via the pg-adapter, but a fresh DB
+ * wouldn't have). Runs once per Node process.
+ *
+ * NOTE: An earlier version of this function also ran an
+ * `UPDATE users SET "emailVerified" = NOW() WHERE created_at < NOW() -
+ * INTERVAL '5 minutes'` backfill. It was meant to grandfather in the
+ * 21 users who pre-dated the verification rollout. But Vercel cold-
+ * starts ran the same UPDATE every time, sweeping up any NEW user who
+ * signed up >5 minutes before the cold start and marking them
+ * verified WITHOUT them ever clicking the email link — so they never
+ * hit /api/auth/verify and never got their 10-token bonus. 22 real
+ * users were affected before this was caught.
+ *
+ * The grandfather migration has long since completed, so the backfill
+ * is gone. If anything ever needs to verify the original cohort
+ * again, do it as a one-off SQL statement, NOT in code that runs on
+ * every cold start.
  */
 let schemaReady: Promise<void> | null = null;
 async function ensureVerificationSchema(): Promise<void> {
@@ -33,16 +45,6 @@ async function ensureVerificationSchema(): Promise<void> {
         token TEXT NOT NULL,
         PRIMARY KEY (identifier, token)
       );
-    `);
-    // Backfill: anyone who already has an account is considered
-    // verified (we can't ask them to re-verify retroactively). This
-    // only runs on FIRST boot after this commit lands because the
-    // WHERE filter naturally no-ops thereafter.
-    await pool.query(`
-      UPDATE users
-         SET "emailVerified" = COALESCE("emailVerified", NOW())
-       WHERE "emailVerified" IS NULL
-         AND created_at < NOW() - INTERVAL '5 minutes';
     `);
   })().catch((e) => {
     schemaReady = null;

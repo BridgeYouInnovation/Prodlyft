@@ -413,7 +413,16 @@ def init_db() -> None:
         for stmt in _split_sql_statements(_AUTH_JS_SQL):
             conn.execute(text(stmt))
     _seed_admin()
-    _backfill_token_balances()
+    # NOTE: _backfill_token_balances() used to run here. Same anti-
+    # pattern as the verification-email backfill on the frontend — it
+    # was intended as a one-shot migration but ran on every worker
+    # boot, granting 10 "migration" tokens to any user without a
+    # token_balances row. That side-channel let users skip the
+    # verification flow and still receive the bonus (or worse,
+    # receive it twice when combined with /api/auth/verify). The
+    # original migration has long since completed; if a future change
+    # ever needs to bulk-seed balances again, do it via a one-off
+    # SQL script, not init_db.
 
 
 @contextmanager
