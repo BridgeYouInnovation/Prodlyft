@@ -59,6 +59,7 @@ interface AdminArticle {
   status: string;
   publish_status: string;
   wp_post_url: string | null;
+  image_url: string | null;
   error: string | null;
   image_error: string | null;
   created_at: string;
@@ -116,6 +117,21 @@ export default function AdminBlogger() {
   }
 
   useEffect(() => { load(); const t = setInterval(load, 15_000); return () => clearInterval(t); }, []);
+
+  async function retryImage(articleId: string) {
+    setBusy(`retry-img:${articleId}`);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/admin/blogger/articles/${articleId}/regenerate-image`, { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      await load();
+    } catch (e) {
+      setErr(`Retry image failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function toggleSchedule(s: AdminSchedule) {
     setBusy(s.id);
@@ -463,11 +479,33 @@ export default function AdminBlogger() {
                         )}
                       </div>
                       {a.error && <div className="text-[11px] text-danger truncate">{a.error}</div>}
-                      {!a.error && a.image_error && (
-                        <div className="text-[11px] text-warn-ink truncate" title={a.image_error}>
-                          Posted without image · {a.image_error}
-                        </div>
-                      )}
+                      {(() => {
+                        // Show "Retry image" when the article published but
+                        // either OpenAI failed (image_error set) OR WP
+                        // silently dropped the sideload (image_url still
+                        // points to our /api/blogger/image proxy instead of
+                        // the WP media library).
+                        const wpDroppedImage =
+                          !!a.image_url &&
+                          /\/api\/blogger\/image\//.test(a.image_url);
+                        const missingImage = a.image_error || wpDroppedImage;
+                        if (a.error || !missingImage || a.status !== "posted") return null;
+                        const reason = a.image_error ||
+                          "WordPress rejected the featured-image sideload (missing .png extension in old proxy URL).";
+                        return (
+                          <div className="text-[11px] text-warn-ink mt-0.5 flex items-center gap-2" title={reason}>
+                            <span className="truncate">Posted without image · {reason}</span>
+                            <button
+                              type="button"
+                              className="btn-xs shrink-0"
+                              disabled={busy === `retry-img:${a.id}`}
+                              onClick={() => retryImage(a.id)}
+                            >
+                              {busy === `retry-img:${a.id}` ? "…" : "Retry image"}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="text-[12.5px] text-muted">{a.user_email}</td>
                     <td>

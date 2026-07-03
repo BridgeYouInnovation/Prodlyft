@@ -5,8 +5,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/blogger/image/[id]/data — public PNG proxy for gpt-image-1
- * articles.
+ * GET /api/blogger/image/[id]/[filename] — public PNG proxy for
+ * gpt-image-1 articles. The trailing filename MUST end in .png so
+ * WordPress's wp_check_filetype() accepts the sideload; the value
+ * itself is ignored. We used to serve this at /[id]/data but WP
+ * rejected files with no extension and silently skipped the featured
+ * image — that's the bug fixed here.
  *
  * gpt-image-1 returns base64-encoded image bytes in the same HTTP
  * response (no URL endpoint, unlike dall-e-3's signed URLs). The WP
@@ -22,9 +26,14 @@ export const dynamic = "force-dynamic";
  *   - Short-lived utility: WP sideloads once and never looks again
  *   - No identifying info in the bytes (just a generated stock image)
  */
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string; filename: string }> }) {
+  const { id, filename } = await params;
   if (!/^art_[0-9a-f]+$/i.test(id)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+  // Guardrail: only serve requests for image-extension filenames — keeps
+  // this endpoint from being probed for arbitrary paths.
+  if (!/\.(png|jpg|jpeg|webp)$/i.test(filename)) {
     return new NextResponse("Not found", { status: 404 });
   }
   const r = await pool.query<{ image_b64: string | null }>(

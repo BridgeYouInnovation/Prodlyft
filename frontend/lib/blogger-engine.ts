@@ -498,7 +498,11 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
         );
       } else if (img?.b64) {
         const base = process.env.PUBLIC_BASE_URL || "https://prodlyft.com";
-        imageUrl = `${base}/api/blogger/image/${articleId}/data`;
+        // MUST end in .png — WordPress's wp_check_filetype() rejects
+        // sideloads with no recognised extension and silently drops
+        // the featured image. This bit us on all pre-2026-07-04
+        // gpt-image-1 articles (proxy used to end in /data).
+        imageUrl = `${base}/api/blogger/image/${articleId}/featured.png`;
         imagePrompt = img.prompt;
         await pool.query(
           "UPDATE blog_articles SET image_url = $1, image_prompt = $2, image_b64 = $3, image_error = NULL, updated_at = NOW() WHERE id = $4",
@@ -532,14 +536,18 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
     });
 
     // Mark posted + replace our proxy URL with WP's permanent media-library
-    // URL. Once WP has the bytes we can drop image_b64 to keep the DB lean.
+    // URL. Only clear image_b64 once we've CONFIRMED the sideload worked
+    // (posted.image_url is the WP attachment URL — populated only when
+    // media_handle_sideload succeeded). If WP failed to sideload, keep
+    // the b64 around so the /regenerate-image repair endpoint can retry
+    // the attach step without redoing OpenAI.
     await pool.query(
       `UPDATE blog_articles
          SET status = 'posted',
              wp_post_id = $1,
              wp_post_url = $2,
              image_url = COALESCE($3, image_url),
-             image_b64 = NULL,
+             image_b64 = CASE WHEN $3::text IS NULL THEN image_b64 ELSE NULL END,
              updated_at = NOW()
        WHERE id = $4`,
       [posted.wp_post_id, posted.wp_post_url, posted.image_url, articleId],

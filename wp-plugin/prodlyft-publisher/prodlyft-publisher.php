@@ -3,7 +3,7 @@
  * Plugin Name:       Prodlyft Publisher
  * Plugin URI:        https://prodlyft.com
  * Description:       Lets the Prodlyft Auto Blogger create and publish posts on this site over a secure REST endpoint.
- * Version:           0.1.0
+ * Version:           0.2.0
  * Requires at least: 5.6
  * Requires PHP:      7.4
  * Author:            Prodlyft
@@ -147,7 +147,7 @@ add_action( 'rest_api_init', function () {
 		'callback'            => function () {
 			return array(
 				'ok'              => true,
-				'plugin_version'  => '0.1.0',
+				'plugin_version'  => '0.2.0',
 				'site_name'       => get_bloginfo( 'name' ),
 				'site_url'        => home_url( '/' ),
 				'wp_version'      => get_bloginfo( 'version' ),
@@ -203,7 +203,55 @@ add_action( 'rest_api_init', function () {
 			'content' => array( 'required' => true, 'type' => 'string' ),
 		),
 	) );
+
+	// Attach (or replace) the featured image on an EXISTING post. Used by
+	// the Auto Blogger "Retry image" flow to repair articles whose image
+	// sideload silently failed at publish time — the original bug was that
+	// our proxy URL had no .png extension so wp_check_filetype() rejected
+	// it. The retry sends the same URL (now with a .png extension) and
+	// this endpoint sideloads + sets it as the post thumbnail.
+	register_rest_route( 'prodlyft/v1', '/posts/(?P<id>\d+)/attach-image', array(
+		'methods'             => 'POST',
+		'permission_callback' => 'prodlyft_check_key',
+		'callback'            => 'prodlyft_attach_featured_image',
+		'args'                => array(
+			'image_url' => array( 'required' => true, 'type' => 'string' ),
+		),
+	) );
 } );
+
+function prodlyft_attach_featured_image( WP_REST_Request $req ) {
+	$post_id   = (int) $req->get_param( 'id' );
+	$image_url = (string) $req->get_param( 'image_url' );
+
+	$post = get_post( $post_id );
+	if ( ! $post ) {
+		return new WP_Error( 'not_found', 'Post not found', array( 'status' => 404 ) );
+	}
+	if ( ! $image_url ) {
+		return new WP_Error( 'bad_request', 'image_url is required', array( 'status' => 400 ) );
+	}
+
+	$attach_id = prodlyft_sideload_image( $image_url, $post_id );
+	if ( is_wp_error( $attach_id ) ) {
+		// Surface the actual reason so the caller can log it (bad
+		// filetype, network failure, permission, etc.) rather than
+		// silently falling back to "no image".
+		return new WP_Error(
+			'sideload_failed',
+			$attach_id->get_error_message(),
+			array( 'status' => 502 )
+		);
+	}
+	set_post_thumbnail( $post_id, $attach_id );
+
+	return array(
+		'ok'            => true,
+		'post_id'       => $post_id,
+		'attachment_id' => (int) $attach_id,
+		'image_url'     => wp_get_attachment_url( $attach_id ),
+	);
+}
 
 function prodlyft_create_post( WP_REST_Request $req ) {
 	$status_in = (string) $req->get_param( 'status' );
