@@ -12,7 +12,7 @@ export async function GET() {
   }
   const r = await pool.query(
     `SELECT a.id, a.topic, a.tone, a.title, a.excerpt, a.status, a.publish_status,
-            a.wp_post_id, a.wp_post_url, a.image_url, a.error,
+            a.wp_post_id, a.wp_post_url, a.image_url, a.error, a.image_error,
             a.created_at, a.updated_at,
             c.site_url AS site_url, c.site_name AS site_name,
             s.name AS schedule_name

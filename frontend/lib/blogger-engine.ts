@@ -272,16 +272,23 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
  * generateImage result. dall-e-3 returns a 1-hour signed URL; gpt-image-1
  * returns base64 in the response body, no URL endpoint. Callers handle
  * both by checking which field is set.
+ *
+ * When image generation fails we return an object with only `error`
+ * populated (no url/b64) so the caller can persist the reason on the
+ * article row for the admin dashboard to surface.
  */
 export interface GeneratedImage {
   prompt: string;
   url?: string;          // dall-e-3 path — fetchable for the next hour
   b64?: string;          // gpt-image-1 path — raw base64 (no data: prefix)
+  error?: string;        // populated when the OpenAI call failed
 }
 
 export async function generateImage(opts: { title: string; topic: string }): Promise<GeneratedImage | null> {
   const key = envOpenAIKey();
-  if (!key) return null;
+  if (!key) {
+    return { prompt: "", error: "OPENAI_API_KEY not set on the frontend" };
+  }
 
   const model = process.env.OPENAI_IMAGE_MODEL || "dall-e-3";
   const isDallE = model.startsWith("dall-e");
@@ -306,24 +313,57 @@ export async function generateImage(opts: { title: string; topic: string }): Pro
     body.response_format = "url";
   }
 
-  const r = await fetch(OPENAI_IMAGE_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  });
+  let r: Response;
+  try {
+    r = await fetch(OPENAI_IMAGE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (e) {
+    const msg = (e as Error).message || String(e);
+    console.error("[blogger] image gen network error:", msg);
+    return { prompt, error: `Network error calling OpenAI: ${msg.slice(0, 200)}` };
+  }
+
   if (!r.ok) {
-    console.error("[blogger] image gen failed:", r.status, (await r.text()).slice(0, 240));
-    return null;
+    const rawBody = (await r.text()).slice(0, 500);
+    // Try to pull the OpenAI error code + message out of the JSON body
+    // so the admin dashboard shows something actionable ("billing hard
+    // limit reached" instead of "HTTP 400").
+    let friendly = `OpenAI HTTP ${r.status}`;
+    try {
+      const parsed = JSON.parse(rawBody) as { error?: { message?: string; code?: string } };
+      const oaErr = parsed.error;
+      if (oaErr?.code === "billing_hard_limit_reached") {
+        friendly =
+          "OpenAI billing hard limit reached — raise or clear it at " +
+          "https://platform.openai.com/settings/organization/limits then " +
+          "regenerate this article. No token was charged.";
+      } else if (oaErr?.code === "content_policy_violation" || oaErr?.code === "moderation_blocked") {
+        friendly = `OpenAI content policy blocked this image: ${oaErr.message?.slice(0, 200) || oaErr.code}`;
+      } else if (oaErr?.code === "insufficient_quota") {
+        friendly = "OpenAI account has no remaining quota. Add credit at https://platform.openai.com/settings/organization/billing/overview";
+      } else if (oaErr?.code === "invalid_api_key" || oaErr?.code === "unauthorized") {
+        friendly = "OpenAI rejected our API key — rotate OPENAI_API_KEY on Vercel.";
+      } else if (oaErr?.message) {
+        friendly = `OpenAI ${r.status}: ${oaErr.message.slice(0, 200)}`;
+      }
+    } catch {
+      /* body wasn't JSON; keep the generic HTTP message */
+    }
+    console.error("[blogger] image gen failed:", r.status, rawBody);
+    return { prompt, error: friendly };
   }
   const data = (await r.json()) as { data?: { url?: string; b64_json?: string }[] };
   const first = data?.data?.[0];
   if (first?.url) return { url: first.url, prompt };
   if (first?.b64_json) return { b64: first.b64_json, prompt };
-  return null;
+  return { prompt, error: "OpenAI returned no url and no b64_json in the response" };
 }
 
 interface PostToWpInput {
@@ -446,13 +486,14 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
     //    plugin (which only knows how to sideload from URLs) can fetch it.
     let imageUrl: string | null = null;
     let imagePrompt: string | null = null;
+    let imageError: string | null = null;
     if (input.withImage) {
       const img = await generateImage({ title: content.title, topic: input.topic });
       if (img?.url) {
         imageUrl = img.url;
         imagePrompt = img.prompt;
         await pool.query(
-          "UPDATE blog_articles SET image_url = $1, image_prompt = $2, updated_at = NOW() WHERE id = $3",
+          "UPDATE blog_articles SET image_url = $1, image_prompt = $2, image_error = NULL, updated_at = NOW() WHERE id = $3",
           [imageUrl, imagePrompt, articleId],
         );
       } else if (img?.b64) {
@@ -460,9 +501,20 @@ export async function generateAndPost(input: GenerateAndPostInput): Promise<{ ar
         imageUrl = `${base}/api/blogger/image/${articleId}/data`;
         imagePrompt = img.prompt;
         await pool.query(
-          "UPDATE blog_articles SET image_url = $1, image_prompt = $2, image_b64 = $3, updated_at = NOW() WHERE id = $4",
+          "UPDATE blog_articles SET image_url = $1, image_prompt = $2, image_b64 = $3, image_error = NULL, updated_at = NOW() WHERE id = $4",
           [imageUrl, imagePrompt, img.b64, articleId],
         );
+      } else if (img?.error) {
+        // Image gen failed but article can still publish text-only.
+        // Persist the reason so the admin dashboard surfaces "OpenAI
+        // billing limit reached" / "content policy violation" / etc.
+        // instead of leaving a mystery blank thumbnail.
+        imageError = img.error;
+        await pool.query(
+          "UPDATE blog_articles SET image_error = $1, updated_at = NOW() WHERE id = $2",
+          [imageError, articleId],
+        );
+        console.warn(`[blogger] article ${articleId} image failed: ${imageError}`);
       }
     }
 

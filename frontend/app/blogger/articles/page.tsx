@@ -94,6 +94,11 @@ export default function ArticleHistory() {
                         {a.error && (
                           <div className="text-[11px] text-danger mt-0.5 truncate">{a.error}</div>
                         )}
+                        {!a.error && a.image_error && (
+                          <div className="text-[11px] text-warn-ink mt-0.5 truncate" title={a.image_error}>
+                            Posted without image · {a.image_error}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <span className={`chip ${

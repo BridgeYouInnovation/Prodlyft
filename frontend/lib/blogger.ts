@@ -81,7 +81,13 @@ export interface BlogArticle {
   publish_status: PublishStatus;
   wp_post_id: number | null;
   wp_post_url: string | null;
+  /** Fatal error — set only when the article as a whole failed to publish. */
   error: string | null;
+  /** Populated only when the article DID publish but the featured
+   *  image couldn't be generated. Reason surfaces the OpenAI /
+   *  Firecrawl / config failure so the admin can act on it (top up
+   *  billing, adjust content, etc.) without digging in Vercel logs. */
+  image_error: string | null;
   created_at: string;
   updated_at: string;
 }

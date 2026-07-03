@@ -60,6 +60,7 @@ interface AdminArticle {
   publish_status: string;
   wp_post_url: string | null;
   error: string | null;
+  image_error: string | null;
   created_at: string;
   site_name: string | null;
   site_url: string | null;
@@ -462,6 +463,11 @@ export default function AdminBlogger() {
                         )}
                       </div>
                       {a.error && <div className="text-[11px] text-danger truncate">{a.error}</div>}
+                      {!a.error && a.image_error && (
+                        <div className="text-[11px] text-warn-ink truncate" title={a.image_error}>
+                          Posted without image · {a.image_error}
+                        </div>
+                      )}
                     </td>
                     <td className="text-[12.5px] text-muted">{a.user_email}</td>
                     <td>

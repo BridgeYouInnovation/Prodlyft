@@ -258,6 +258,9 @@ CREATE INDEX IF NOT EXISTS idx_blog_articles_schedule ON blog_articles(schedule_
 -- sideloader has a URL to fetch. Cleared once WordPress responds with
 -- its own media-library URL.
 ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_b64 TEXT;
+-- Surface OpenAI image-gen failures (billing limits, content policy,
+-- etc.) on the article row so the admin dashboard can show them.
+ALTER TABLE blog_articles ADD COLUMN IF NOT EXISTS image_error TEXT;
 
 -- products.created_at had no DB-level default; admin CSV uploads + any
 -- other raw-SQL path 500'd with "null value in column created_at".
