@@ -53,13 +53,14 @@ export default function BloggerConnect() {
               <p className="text-[13px] text-muted leading-[1.55] mb-3">
                 Download the Prodlyft Publisher plugin and upload it via{" "}
                 <span className="font-mono">Plugins → Add New → Upload Plugin</span> on your WordPress site, then activate it.
+                Already have an older version installed? Upload this ZIP over the top and choose <em>Replace current</em> — your API key is preserved.
               </p>
               <a
-                href="/downloads/prodlyft-publisher.zip"
-                download
+                href="/downloads/prodlyft-publisher.zip?v=0.2.0"
+                download="prodlyft-publisher.zip"
                 className="btn"
               >
-                <Icons.Download size={13} /> Download plugin (.zip)
+                <Icons.Download size={13} /> Download plugin v0.2.0 (.zip)
               </a>
             </li>
 
