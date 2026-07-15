@@ -53,7 +53,13 @@ Reply with ONE JSON object only — no prose, no markdown fences:
   "body":    "The full post in HTML. Use <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <blockquote>. Do NOT include <html>, <head>, or <body> wrappers."
 }
 
-Hard rules:
+JSON-SAFETY RULES (violating these breaks the parser and the post is rejected):
+- Use SINGLE quotes for every HTML attribute — write <a href='https://example.com' target='_blank'> and <img src='...' alt='...' />, NEVER <a href="...">. Single quotes are valid HTML and don't collide with the JSON string delimiters.
+- Never use raw newlines, tabs, or carriage returns inside any string value. Concatenate HTML into one continuous string; if you need whitespace between tags for readability, use a single space, not a line break.
+- If you must include a literal double-quote character in prose (e.g., a quoted phrase), escape it as \\".
+- Never include a backslash inside any string except as part of a valid JSON escape sequence.
+
+Content rules:
 - HTML only inside body — no markdown like ## or **bold**.
 - Don't invent statistics, prices, names, or quotes. If unsure, generalise.
 - Open with a 1-2 paragraph intro, then 3-6 H2 sections, then a brief conclusion.
@@ -99,19 +105,84 @@ function extractJsonObject<T>(raw: string): T | null {
     try { return JSON.parse(balanced) as T; } catch { /* try cleanup */ }
 
     // Strategy 4: cheap cleanups for the most common LLM quirks —
-    // trailing commas, smart-quotes, BOM. We deliberately do NOT strip
-    // control chars: tab/newline/CR inside JSON strings must be escaped,
-    // but stripping them blindly would corrupt valid HTML in `body`.
-    // If the model emitted unescaped control chars, JSON.parse below
-    // fails and we give up — better than silent corruption.
+    // trailing commas, smart-quotes, BOM.
     const cleaned = balanced
       .replace(/,(\s*[}\]])/g, "$1")        // trailing commas
       .replace(/[‘’]/g, "'")      // curly single quotes
       .replace(/[“”]/g, '"')      // curly double quotes
       .replace(/^\uFEFF/, "");           // BOM
-    try { return JSON.parse(cleaned) as T; } catch { /* give up */ }
+    try { return JSON.parse(cleaned) as T; } catch { /* fall through */ }
+
+    // Strategy 5: repair raw control chars inside string values. Long
+    // HTML bodies from Gemini often contain literal LF/CR/TAB bytes
+    // because the model formatted its HTML for readability. Walk
+    // char-by-char, track string boundaries via escape state, and
+    // rewrite any raw control char that appears mid-string to its
+    // escaped form. Control chars OUTSIDE strings are legitimate JSON
+    // whitespace and left alone.
+    const controlRepaired = escapeStringControlChars(cleaned);
+    try { return JSON.parse(controlRepaired) as T; } catch { /* fall through */ }
+
+    // Strategy 6: last-ditch \u2014 repair unescaped inner double quotes.
+    // Common Gemini failure on long HTML bodies: <a href="url"> written
+    // literally inside body instead of <a href=\"url\">. Heuristic \u2014 a "
+    // inside a string is a real closing quote only if the next
+    // non-whitespace char is a JSON structural token (, : } ]) or
+    // end-of-input; otherwise it belongs to HTML content and needs
+    // escaping. Imperfect but recovers most real-world broken payloads.
+    const quoteRepaired = repairInnerDoubleQuotes(controlRepaired);
+    try { return JSON.parse(quoteRepaired) as T; } catch { /* give up */ }
   }
   return null;
+}
+
+function escapeStringControlChars(raw: string): string {
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) { out += ch; escape = false; continue; }
+    if (ch === "\\") { out += ch; escape = true; continue; }
+    if (ch === '"') { out += ch; inString = !inString; continue; }
+    if (inString) {
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { out += "\\r"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function repairInnerDoubleQuotes(raw: string): string {
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) { out += ch; escape = false; continue; }
+    if (ch === "\\") { out += ch; escape = true; continue; }
+    if (ch !== '"') { out += ch; continue; }
+
+    if (!inString) {
+      out += ch;
+      inString = true;
+      continue;
+    }
+    // Peek ahead \u2014 legitimate closing quote if next non-ws char is a
+    // JSON structural token.
+    let j = i + 1;
+    while (j < raw.length && (raw[j] === " " || raw[j] === "\t" || raw[j] === "\n" || raw[j] === "\r")) j++;
+    const nextCh = raw[j];
+    if (nextCh === undefined || nextCh === "," || nextCh === ":" || nextCh === "}" || nextCh === "]") {
+      out += ch;
+      inString = false;
+    } else {
+      out += '\\"';
+    }
+  }
+  return out;
 }
 
 /** Walk `raw`, find the first {...} block where braces balance. */
@@ -205,9 +276,12 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
   // appended. Empirically this fixes the cases where Gemini/Claude got
   // chatty and wrapped the JSON in prose or markdown.
   const STRICTER_REMINDER =
-    "\n\nCRITICAL: Output MUST be a single raw JSON object starting with { and ending with }. " +
-    "No markdown code fences. No prose before or after. No explanation. " +
-    "All strings must be valid JSON (escape any internal double quotes with \\\").";
+    "\n\nCRITICAL — the last attempt returned malformed JSON. Output MUST be a single raw JSON " +
+    "object starting with { and ending with }. No markdown code fences. No prose before or " +
+    "after. No explanation. Inside the \"body\" string: every HTML attribute MUST use SINGLE " +
+    "quotes (href='...' alt='...'), never double quotes. No raw newlines, tabs, or carriage " +
+    "returns inside any string value — concatenate HTML into one line. Escape any literal " +
+    "double-quote in prose as \\\".";
 
   let lastRaw = "";
   let lastFinish: string | undefined;
