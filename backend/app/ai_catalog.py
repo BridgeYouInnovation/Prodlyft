@@ -30,6 +30,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .config import get_settings
+from .errors import SiteBlockedError
 from .platforms import USER_AGENT, normalize_base
 
 
@@ -166,6 +167,25 @@ def _first_brace_block(s: str) -> str:
     return ""
 
 
+_BLOCK_STATUSES = frozenset({401, 403, 406, 429, 503})
+
+
+def _detect_mitigator(response: httpx.Response) -> str | None:
+    """Best-effort identification of the WAF that blocked us, purely from
+    response headers. Returns a lowercase vendor name or None."""
+    h = response.headers
+    if h.get("cf-mitigated") or h.get("cf-ray") or (h.get("server", "").lower() == "cloudflare"):
+        return "cloudflare"
+    server = h.get("server", "").lower()
+    if "akamai" in server or h.get("akamai-grn"):
+        return "akamai"
+    if h.get("x-datadome") or "datadome" in h.get("set-cookie", "").lower():
+        return "datadome"
+    if h.get("x-iinfo") or "incapsula" in h.get("set-cookie", "").lower():
+        return "imperva"
+    return None
+
+
 def _fetch(url: str, timeout: float = 30.0) -> str:
     with httpx.Client(
         follow_redirects=True,
@@ -178,6 +198,12 @@ def _fetch(url: str, timeout: float = 30.0) -> str:
     ) as c:
         r = c.get(url)
         if r.status_code != 200:
+            if r.status_code in _BLOCK_STATUSES:
+                raise SiteBlockedError(
+                    host=urlparse(url).netloc,
+                    status=r.status_code,
+                    mitigator=_detect_mitigator(r),
+                )
             raise RuntimeError(f"HTTP {r.status_code}")
         return r.text
 
@@ -241,6 +267,10 @@ def fetch_ai_catalog(
     # Phase 1: discover layout.
     try:
         homepage_html = _fetch(base + "/")
+    except SiteBlockedError:
+        # Let the worker surface the specific "site blocked us" message
+        # instead of the generic "couldn't find products" one.
+        raise
     except Exception as e:
         print(f"[ai_catalog] couldn't fetch homepage: {e}", flush=True)
         return []

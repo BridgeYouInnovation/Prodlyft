@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from .db import SessionLocal
+from .errors import SiteBlockedError
 from .models import Crawl, Product
 from .platforms import (
     detect_platform,
@@ -302,6 +303,26 @@ def process_crawl(crawl_id: str) -> None:
             total=saved,
             error=None,
         )
+    except SiteBlockedError as e:
+        if e.mitigator:
+            msg = (
+                f"{e.host} is protected by {e.mitigator.title()} bot "
+                f"protection and returned HTTP {e.status} to our scraper. "
+                "We can't extract from sites that actively challenge "
+                "automated traffic."
+            )
+        else:
+            msg = (
+                f"{e.host} blocked our scraper (HTTP {e.status}). "
+                "The site's anti-bot protection stopped us from reading it."
+            )
+        _update(
+            crawl_id,
+            status="failed",
+            error=msg,
+            progress={"step": "blocked", "host": e.host, "mitigator": e.mitigator, "status": e.status},
+        )
+        return
     except Exception as e:
         _update(crawl_id, status="failed", error=str(e), progress={"step": "failed"})
         raise
