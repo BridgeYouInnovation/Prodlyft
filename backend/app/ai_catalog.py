@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Callable, Iterable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -252,12 +252,34 @@ def _fetch_product_html(purl: str) -> str | None:
         return None
 
 
-def _paginate_url(catalog_url: str, page: int) -> str:
-    """Best-effort pagination URL. Tries /page/N/ first (most common),
-    then ?page=N as a fallback the caller can probe."""
+def _paginate_candidates(catalog_url: str, page: int) -> list[str]:
+    """Ordered candidate URLs for page N of a catalog. The caller tries
+    each until one yields new product hrefs — that shape then wins for
+    subsequent pages via the caller's own retry-in-order loop.
+
+    Shapes covered:
+      - `?page=N` / `?p=N`  (query-driven — bobswatches, most SPAs, many
+        Magento/BigCommerce/custom sites)
+      - `/page/N/`          (pretty permalinks — WordPress default)
+    """
     parsed = urlparse(catalog_url)
+    # If the URL already has query params, replace/add page= there and
+    # trust that shape — mixing pretty pagination with an existing
+    # query string would produce broken URLs on most stacks.
+    if parsed.query:
+        q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        if "p" in q and "page" not in q:
+            q["p"] = str(page)
+        else:
+            q["page"] = str(page)
+        return [urlunparse(parsed._replace(query=urlencode(q)))]
+
     base = catalog_url.rstrip("/")
-    return f"{base}/page/{page}/"
+    return [
+        f"{base}?page={page}",   # most common on custom / Magento / BigCommerce
+        f"{base}/page/{page}/",  # WordPress-style permalinks
+        f"{base}?p={page}",      # rarer alternate query param
+    ]
 
 
 def _discover_product_urls(
@@ -305,6 +327,12 @@ def fetch_ai_catalog(
     from . import firecrawl
 
     base = normalize_base(url)
+    # If the user submitted a specific catalog path (not just the origin),
+    # trust it as a seed catalog URL rather than making the LLM re-discover
+    # it from the homepage — the LLM often picks brand pages or top-level
+    # categories over the specific listing the user cares about.
+    submitted_path = urlparse(url).path or ""
+    seed_catalog_url = url if submitted_path.strip("/") else None
     if on_progress:
         on_progress(0, None)
 
@@ -324,6 +352,10 @@ def fetch_ai_catalog(
         return []
 
     catalog_urls = [u for u in (layout.get("catalog_urls") or []) if isinstance(u, str)]
+    # User-submitted catalog path wins the walk order — its products
+    # get fetched before any brand/category pages the LLM suggested.
+    if seed_catalog_url:
+        catalog_urls = [seed_catalog_url] + [u for u in catalog_urls if u != seed_catalog_url]
     # Accept either the new "product_url_patterns" list or the older
     # singular "product_url_pattern" for back-compat.
     raw_patterns: list[str] = []
@@ -377,27 +409,40 @@ def fetch_ai_catalog(
                 best = urls
         return best
 
+    # Cap pagination per catalog. Derived from the target so a big
+    # crawl (max_products=1800) can walk 40+ pages, while small
+    # crawls don't waste requests probing beyond page 10.
+    max_pages_per_catalog = max(10, min(200, target_url_count // 25 + 5))
     for cat_url in catalog_urls:
         if len(product_urls) >= target_url_count:
             break
         page = 1
         while len(product_urls) < target_url_count:
-            cur = cat_url if page == 1 else _paginate_url(cat_url, page)
-            try:
-                cat_html = _fetch(cur)
-            except Exception:
-                break
-            new_here = best_pattern_urls(cat_html, cur, target_url_count - len(product_urls) + 5)
+            # Candidates for page N (page 1 is always the catalog URL
+            # verbatim; later pages try /page/N/ vs ?page=N vs ?p=N).
+            candidates = [cat_url] if page == 1 else _paginate_candidates(cat_url, page)
             new_count = 0
-            for u in new_here:
-                if u not in seen:
-                    seen.add(u)
-                    product_urls.append(u)
-                    new_count += 1
+            for cur in candidates:
+                try:
+                    cat_html = _fetch(cur)
+                except Exception:
+                    continue
+                new_here = best_pattern_urls(
+                    cat_html, cur, target_url_count - len(product_urls) + 5
+                )
+                page_new = 0
+                for u in new_here:
+                    if u not in seen:
+                        seen.add(u)
+                        product_urls.append(u)
+                        page_new += 1
+                if page_new > 0:
+                    new_count = page_new
+                    break  # this candidate worked; move to next page
             if new_count == 0:
-                break  # this catalog page yielded nothing new — stop paginating
+                break  # every candidate gave stale / no hrefs — stop paginating
             page += 1
-            if page > 10:
+            if page > max_pages_per_catalog:
                 break  # cap pagination per catalog
     print(f"[ai_catalog] collected {len(product_urls)} product URL(s)", flush=True)
     if not product_urls:
