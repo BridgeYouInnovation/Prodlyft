@@ -100,6 +100,11 @@ def _call_llm(url: str, html: str) -> dict | None:
         ],
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
+        # The JSON response is small (list of catalog URLs + a couple
+        # of regex patterns) — a few hundred tokens. Cap output at 4k
+        # so OpenRouter's upfront credit check doesn't reserve the full
+        # model context (65k on Gemini) and 402 on low balances.
+        "max_tokens": 4000,
     }
     try:
         with httpx.Client(timeout=90.0) as c:
