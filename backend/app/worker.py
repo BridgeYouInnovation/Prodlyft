@@ -21,7 +21,7 @@ from .ai_scraper import (
     extract_with_config,
 )
 from .tokens import EXTRACT_PRODUCT, get_balance, try_debit
-from . import firecrawl
+from . import firecrawl, unlocker
 
 
 # Safety cap — the most products we'll ever fetch from a single storefront in
@@ -201,6 +201,41 @@ def process_crawl(crawl_id: str) -> None:
                     for k, v in fc_raw.items():
                         if v and not raw.get(k):
                             raw[k] = v
+
+            # Absolute last resort: Scrapfly ASP fetches the HTML through a
+            # real browser + residential IPs, then we re-run the same
+            # heuristic + AI-config extraction on the unblocked HTML.
+            # Costs more than Firecrawl so it only fires if Firecrawl
+            # (or the free paths) still left us without title/price.
+            if (not raw.get("title") or raw.get("price") is None) and unlocker.is_enabled():
+                print("[worker] still empty → trying Scrapfly unlocker", flush=True)
+                _update(crawl_id, progress={"step": "unlocker"})
+                unlocked_html = unlocker.fetch_html(url)
+                if unlocked_html:
+                    u_raw = extract_heuristic(unlocked_html, url)
+                    if not u_raw.get("title") or u_raw.get("price") is None:
+                        try:
+                            u_cfg, _ = get_or_generate_config(url, unlocked_html)
+                        except Exception as e:
+                            print(f"[worker] unlocker ai_config failed: {e}", flush=True)
+                            u_cfg = None
+                        if u_cfg:
+                            try:
+                                u_ai = extract_with_config(unlocked_html, u_cfg, url)
+                                for k, v in u_ai.items():
+                                    if v and not u_raw.get(k):
+                                        u_raw[k] = v
+                            except Exception as e:
+                                print(f"[worker] unlocker ai_extract failed: {e}", flush=True)
+                    print(
+                        f"[worker] unlocker: title={u_raw.get('title')!r} price={u_raw.get('price')} images={len(u_raw.get('images') or [])}",
+                        flush=True,
+                    )
+                    for k, v in u_raw.items():
+                        if v and not raw.get(k):
+                            raw[k] = v
+                else:
+                    print("[worker] unlocker returned no HTML", flush=True)
 
             _update(crawl_id, progress={"step": "cleaning"})
             cleaned = clean_product(raw)

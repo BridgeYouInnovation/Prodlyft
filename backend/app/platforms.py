@@ -134,12 +134,40 @@ def detect_platform(url: str, timeout: float = 10.0) -> str:
             except Exception as e:
                 print(f"[detect_platform] Firecrawl woo fallback exception: {e}", flush=True)
 
+            # Firecrawl couldn't crack it either — try the paid unlocker.
+            if woo_result_count is None:
+                try:
+                    from . import unlocker as _ul
+                    if _ul.is_enabled():
+                        print(f"[detect_platform] retrying woo probe via Scrapfly", flush=True)
+                        data = _ul.fetch_json(woo_url + "?per_page=1")
+                        if isinstance(data, list):
+                            woo_result_count = len(data)
+                            print(f"[detect_platform] Scrapfly returned {woo_result_count} item(s)", flush=True)
+                            if woo_result_count > 0:
+                                return "woocommerce"
+                            wp_likely = True
+                except Exception as e:
+                    print(f"[detect_platform] Scrapfly woo fallback exception: {e}", flush=True)
+
         # 3. Heuristic: fetch HTML, look for markers
         html = ""
         try:
             r = c.get(url)
             if r.status_code == 200:
                 html = r.text
+            elif r.status_code in {401, 403, 406, 429, 503}:
+                # WAF blocked the homepage too — one more try via unlocker
+                # so we can still read the HTML markers for Shopify/WC.
+                try:
+                    from . import unlocker as _ul
+                    if _ul.is_enabled():
+                        unlocked = _ul.fetch_html(url)
+                        if unlocked:
+                            html = unlocked
+                except Exception as e:
+                    print(f"[detect_platform] Scrapfly HTML fallback exception: {e}", flush=True)
+            if html:
                 if "cdn.shopify.com" in html or "Shopify.shop" in html or "shopify-digital-wallet" in html:
                     return "shopify"
                 # Confirm WordPress one way or another.

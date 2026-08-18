@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     firecrawl_api_key: str = ""
     firecrawl_base_url: str = "https://api.firecrawl.dev"
 
+    # Scrapfly unlocker — final-tier fallback for sites Firecrawl can't
+    # get past (Cloudflare Bot Management, DataDome). Uses residential
+    # IPs + real-browser JS challenge solving. Costs more per request
+    # than Firecrawl (~$0.005–$0.025 vs ~$0.006) so only fires when
+    # every free path AND Firecrawl have all failed on the current URL.
+    # Leave empty to disable Scrapfly entirely.
+    scrapfly_api_key: str = ""
+    scrapfly_base_url: str = "https://api.scrapfly.io"
+
     cors_origins: str = "http://localhost:3000"
 
     scraper_timeout_ms: int = 30000

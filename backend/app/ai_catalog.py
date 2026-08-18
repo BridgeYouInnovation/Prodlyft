@@ -186,7 +186,18 @@ def _detect_mitigator(response: httpx.Response) -> str | None:
     return None
 
 
+# Hosts we've had to unlock this process. Populated by _fetch when
+# Scrapfly bailed us out; consulted by _fetch_product_html so that
+# subsequent per-product fetches on the same domain skip Playwright
+# (which would just get a challenge page back) and go straight to
+# Scrapfly. Not persistent — a fresh RQ worker process starts empty
+# and rediscovers as it goes.
+_UNLOCKER_DOMAINS: set[str] = set()
+
+
 def _fetch(url: str, timeout: float = 30.0) -> str:
+    from . import unlocker  # local import — worker cold-start ordering
+
     with httpx.Client(
         follow_redirects=True,
         timeout=timeout,
@@ -197,15 +208,48 @@ def _fetch(url: str, timeout: float = 30.0) -> str:
         },
     ) as c:
         r = c.get(url)
-        if r.status_code != 200:
-            if r.status_code in _BLOCK_STATUSES:
-                raise SiteBlockedError(
-                    host=urlparse(url).netloc,
-                    status=r.status_code,
-                    mitigator=_detect_mitigator(r),
+        if r.status_code == 200:
+            return r.text
+
+        if r.status_code in _BLOCK_STATUSES:
+            mitigator = _detect_mitigator(r)
+            # Paid last-resort: Scrapfly's ASP mode. Only if configured.
+            if unlocker.is_enabled():
+                print(
+                    f"[ai_catalog] {url} blocked (HTTP {r.status_code}"
+                    f"{'/' + mitigator if mitigator else ''}) → Scrapfly",
+                    flush=True,
                 )
-            raise RuntimeError(f"HTTP {r.status_code}")
-        return r.text
+                html = unlocker.fetch_html(url, timeout=max(timeout, 90.0))
+                if html:
+                    _UNLOCKER_DOMAINS.add(urlparse(url).netloc)
+                    return html
+                print(f"[ai_catalog] Scrapfly also failed on {url}", flush=True)
+            raise SiteBlockedError(
+                host=urlparse(url).netloc,
+                status=r.status_code,
+                mitigator=mitigator,
+            )
+        raise RuntimeError(f"HTTP {r.status_code}")
+
+
+def _fetch_product_html(purl: str) -> str | None:
+    """Fetch a product-detail page's HTML. Uses Playwright by default;
+    routes through Scrapfly for hosts a prior _fetch call had to unlock,
+    because Playwright would silently return the WAF challenge page on
+    those and downstream extraction would waste tokens on garbage HTML.
+    Returns None on any failure so the caller can skip the URL."""
+    from . import unlocker
+    from .scraper import fetch_html as playwright_fetch
+
+    host = urlparse(purl).netloc
+    if host in _UNLOCKER_DOMAINS and unlocker.is_enabled():
+        return unlocker.fetch_html(purl)
+    try:
+        return playwright_fetch(purl)
+    except Exception as e:
+        print(f"[ai_catalog] Playwright fetch failed for {purl}: {e}", flush=True)
+        return None
 
 
 def _paginate_url(catalog_url: str, page: int) -> str:
@@ -255,7 +299,7 @@ def fetch_ai_catalog(
     """
     # Local imports to dodge the worker's circular-import risk
     # (scraper/ai/ai_scraper import platforms which imports … etc.).
-    from .scraper import fetch_html, extract_heuristic
+    from .scraper import extract_heuristic
     from .ai import clean_product
     from .ai_scraper import get_or_generate_config, extract_with_config
     from . import firecrawl
@@ -366,10 +410,8 @@ def fetch_ai_catalog(
     for purl in product_urls[: max(max_products * 2, max_products + 10)]:
         if len(products) >= max_products:
             break
-        try:
-            html = fetch_html(purl)
-        except Exception as e:
-            print(f"[ai_catalog] fetch failed for {purl}: {e}", flush=True)
+        html = _fetch_product_html(purl)
+        if not html:
             continue
 
         raw = extract_heuristic(html, purl)
