@@ -339,6 +339,93 @@ def _anchor_looks_like_product(a_tag) -> bool:
     return False
 
 
+# Elements that mean "this page shows a grid of multiple products" —
+# finding more than a handful of these on the fetched HTML is a strong
+# signal that the URL we followed was a category / collection page, not
+# a product-detail page.
+_PRODUCT_GRID_SELECTORS = (
+    "li.product",
+    "article.product",
+    "li.product-item",
+    "[data-product-id]",
+    ".product-card",
+    ".product-tile",
+    "ul.products > li",
+    ".products-grid > *",
+)
+_COLLECTION_SCHEMA_TYPES = frozenset(
+    {"itemlist", "collectionpage", "categorypage", "offercatalog"}
+)
+
+
+def _collect_jsonld_types(html: str) -> tuple[bool, bool]:
+    """Scan the page's JSON-LD blocks and return (has_product, has_collection).
+
+    Strong signal: an actual product-detail page nearly always embeds a
+    `Product` JSON-LD block (schema.org/Product), while a category /
+    listing page embeds `ItemList` / `CollectionPage` / `CategoryPage`
+    / `OfferCatalog` instead. If both are present we trust Product (some
+    sites embed a Breadcrumb's parent CollectionPage on product pages
+    too)."""
+    has_product = False
+    has_collection = False
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup.find_all("script", type="application/ld+json"):
+        raw = tag.string or tag.get_text() or ""
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        # Flatten top-level + @graph entries so we see every schema type
+        # the page declares, not just the outermost one.
+        stack: list = data if isinstance(data, list) else [data]
+        while stack:
+            it = stack.pop()
+            if not isinstance(it, dict):
+                continue
+            graph = it.get("@graph")
+            if isinstance(graph, list):
+                stack.extend(graph)
+            t = it.get("@type")
+            types = t if isinstance(t, list) else [t]
+            tnames = {str(x).lower() for x in types if x}
+            if "product" in tnames:
+                has_product = True
+            if tnames & _COLLECTION_SCHEMA_TYPES:
+                has_collection = True
+    return has_product, has_collection
+
+
+def _looks_like_product_page(html: str) -> bool:
+    """Decide whether `html` is a product-detail page vs a category /
+    listing page we accidentally followed from the catalog grid.
+
+    Called after each per-product fetch, before we pay for heuristic +
+    AI-config + Firecrawl extraction. Returns True on any ambiguity —
+    we'd rather let one borderline URL through than silently drop a
+    real product with weird markup."""
+    has_product, has_collection = _collect_jsonld_types(html)
+    if has_product:
+        return True  # strong keep
+    if has_collection:
+        return False  # strong drop
+    # No decisive schema. Fall back to "does the page have a product
+    # grid?" — if yes, it's a category page.
+    soup = BeautifulSoup(html, "lxml")
+    cards = 0
+    for sel in _PRODUCT_GRID_SELECTORS:
+        try:
+            cards += len(soup.select(sel))
+        except Exception:
+            pass
+        if cards >= 4:
+            return False
+    return True
+
+
 def _discover_product_urls(
     catalog_html: str,
     catalog_url: str,
@@ -530,6 +617,13 @@ def fetch_ai_catalog(
             break
         html = _fetch_product_html(purl)
         if not html:
+            continue
+        # Guard against promo tiles / collection URLs that slipped
+        # through the catalog-page filter but are category pages, not
+        # products. Cheap check against JSON-LD schema types + grid
+        # density — see _looks_like_product_page.
+        if not _looks_like_product_page(html):
+            print(f"[ai_catalog] skip {purl}: looks like a category/listing page", flush=True)
             continue
 
         raw = extract_heuristic(html, purl)
