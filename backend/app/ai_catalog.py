@@ -287,6 +287,58 @@ def _paginate_candidates(catalog_url: str, page: int) -> list[str]:
     ]
 
 
+# A text run near a product anchor has at least one of these: currency
+# glyph + digits, a bare price like "19.99 USD", or a class like
+# "price"/"amount"/"cost" on a nearby element. Nav / breadcrumb / footer
+# anchors on an e-commerce page nearly never have any of these within
+# three DOM ancestors, so this is a cheap and reliable "is this really
+# a product card?" check.
+_PRICE_TEXT_RE = re.compile(
+    r"[$£€¥₹]\s*\d|(?<!\w)\d+(?:[.,]\d{2})?\s*(?:USD|EUR|GBP|CAD|AUD)\b",
+    re.IGNORECASE,
+)
+_PRICE_CLASS_RE = re.compile(r"\b(?:price|amount|cost|money)\b", re.IGNORECASE)
+
+
+_CARD_SCOPE_ANCHOR_LIMIT = 3  # a product card usually has 1-2 anchors; a
+#                                 nav / sidebar / grid wrapper has many.
+_NON_CARD_TAGS = frozenset({"nav", "aside", "footer", "header", "menu"})
+
+
+def _anchor_looks_like_product(a_tag) -> bool:
+    """True if `a_tag` sits inside a DOM subtree that looks like a
+    product card: price text or a priced class within the same card
+    scope.
+
+    A card's "scope" is the subtree rooted at the nearest ancestor
+    that still contains only a handful of anchors AND is not a
+    landmark region (nav/aside/footer/header/menu). We walk up until
+    one of those boundaries is hit — at that point we've bubbled
+    into the grid wrapper / nav / sidebar / footer, and any price
+    we find above there belongs to another part of the page, not to
+    this anchor. Returning False there is what filters out
+    nav/category/footer links on sites where every path shares the
+    same URL shape (e.g. .html suffixes)."""
+    node = getattr(a_tag, "parent", None)
+    for _ in range(6):
+        if node is None or not hasattr(node, "find_all"):
+            break
+        if getattr(node, "name", None) in _NON_CARD_TAGS:
+            return False
+        if len(node.find_all("a")) > _CARD_SCOPE_ANCHOR_LIMIT:
+            # Bubbled out of the card scope — stop before we start
+            # seeing prices from sibling cards.
+            return False
+        text = node.get_text(" ", strip=True)
+        if text and _PRICE_TEXT_RE.search(text):
+            return True
+        priced_el = node.find(class_=_PRICE_CLASS_RE)
+        if priced_el and priced_el.get_text(strip=True):
+            return True
+        node = node.parent
+    return False
+
+
 def _discover_product_urls(
     catalog_html: str,
     catalog_url: str,
@@ -294,23 +346,39 @@ def _discover_product_urls(
     pattern: re.Pattern[str],
     limit: int,
 ) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for m in re.finditer(r'href="([^"]+)"', catalog_html):
-        href = m.group(1)
+    """Return anchors on the catalog page whose href matches `pattern`
+    AND whose DOM context looks like a product card (price nearby).
+
+    Falls back to pattern-only matches when the strict filter yields
+    nothing — a few real stores render prices only after client-side
+    JS runs post-fetch, and we don't want to drop them entirely just
+    because our HTML snapshot doesn't carry the price text."""
+    soup = BeautifulSoup(catalog_html, "lxml")
+    strict: list[str] = []
+    loose: list[str] = []
+    seen_strict: set[str] = set()
+    seen_loose: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        href = a.get("href") or ""
         abs_url = urljoin(catalog_url, href).split("#", 1)[0].split("?", 1)[0]
         if not abs_url.startswith(base):
             continue
         path = urlparse(abs_url).path
         if not pattern.search(path):
             continue
-        if abs_url in seen:
+        if abs_url not in seen_loose:
+            seen_loose.add(abs_url)
+            loose.append(abs_url)
+        if abs_url in seen_strict:
             continue
-        seen.add(abs_url)
-        out.append(abs_url)
-        if len(out) >= limit:
-            break
-    return out
+        if _anchor_looks_like_product(a):
+            seen_strict.add(abs_url)
+            strict.append(abs_url)
+            if len(strict) >= limit:
+                return strict
+    if strict:
+        return strict[:limit]
+    return loose[:limit]
 
 
 def fetch_ai_catalog(
